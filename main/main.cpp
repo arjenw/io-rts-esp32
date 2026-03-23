@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "NvsHelpers.hpp"
 #include "RadioSX1276.hpp"
 #include "IoHomeControl.hpp"
 #include "cmd_line_management.hpp"
@@ -8,6 +9,8 @@
 #include "esp_log.h"
 #include "sdkconfig.h"
 #include "esp_console.h"
+
+using namespace Helpers;
 
 static const char *TAG = "io-rts-esp32";
 
@@ -38,6 +41,10 @@ static void deviceStatusCallback(const std::string deviceID, const iohome::IoDev
 
 extern "C" void app_main(void)
 {
+    // Initialize NVS
+    esp_err_t err = NvsHelpers::InitNvs();
+    ESP_ERROR_CHECK(err);
+
     // Initialize IO-HOMECONTROL
 #ifdef CONFIG_ENABLE_IOHOMECONTROL
 #ifdef CONFIG_IOHOMECONTROL_SX1276_SPI_HOST3
