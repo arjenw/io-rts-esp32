@@ -37,12 +37,12 @@ These features are currently available:
 - (S)NTP support for time synchronization
 - Front-end:
   - Command line permits to:
-    - control IO devices: discover and pair, add, open, close, stop, set to favorite position, set to specific position (0-100%), change name inside device, link a remote to a device
+    - Control IO devices: discover and pair, add, open, close, stop, set to favorite position, set to specific position (0-100%), change name inside device, link a remote to a device
+    - Reboot ESP32
 - Configuration storage to flash
 
 These features should be available before end of 2026 depending on my available time:
 - New features from command line (expected April 2026 :calendar:):
-  - Reboot ESP32
   - Change Wifi and DHCP/IPv4 configuration without reflashing firmware
   - Change IO-Homecontrol configuration (enable/disable logging, active/passive mode, change IO key, change NodeID, change Tx power) without reflashing firmware
 - MQTT (expected April-May 2026 :calendar:): devices control and status, with plug and play integration in Home Assistant without extra work on your side
