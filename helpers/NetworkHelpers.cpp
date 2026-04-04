@@ -114,7 +114,8 @@ namespace Helpers
         else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
         {
             sIsConnected = false;
-            ESP_LOGE(TAG, "Connection to the AP fail!");
+            wifi_event_sta_disconnected_t *event = (wifi_event_sta_disconnected_t *) event_data;
+            ESP_LOGE(TAG, "Connection to the AP fail! (%d)", event->reason);
             vTaskDelay(pdMS_TO_TICKS(60000));
             ESP_LOGI(TAG, "Retry to connect to the AP");
             esp_wifi_connect();
@@ -139,11 +140,11 @@ namespace Helpers
         // Initialize Wifi
         wifi_config_t wifi_config;
         memset(&wifi_config, 0, sizeof(wifi_config));
-        memcpy(&wifi_config.sta.ssid, wifi_ssid.c_str(), wifi_ssid.length() < sizeof(wifi_config.sta.ssid) ? wifi_ssid.length() : sizeof(wifi_config.sta.ssid) - 1);
-        memcpy(&wifi_config.sta.password, wifi_pwd.c_str(), wifi_pwd.length() < sizeof(wifi_config.sta.password) ? wifi_pwd.length() : sizeof(wifi_config.sta.password) - 1);
+        memcpy(&wifi_config.sta.ssid, wifi_ssid.c_str(), wifi_ssid.length() <= sizeof(wifi_config.sta.ssid) ? wifi_ssid.length() : sizeof(wifi_config.sta.ssid));
+        memcpy(&wifi_config.sta.password, wifi_pwd.c_str(), wifi_pwd.length() <= sizeof(wifi_config.sta.password) ? wifi_pwd.length() : sizeof(wifi_config.sta.password));
         wifi_config.sta.threshold.authmode = NetworkConfig::GetWifiAuthModeThreshold();
         wifi_config.sta.sae_pwe_h2e = NetworkConfig::GetWifiSAEMode();
-        memcpy(&wifi_config.sta.sae_h2e_identifier, wifi_pwid.c_str(), wifi_pwid.length() < sizeof(wifi_config.sta.sae_h2e_identifier) ? wifi_pwid.length() : sizeof(wifi_config.sta.sae_h2e_identifier) - 1);
+        memcpy(&wifi_config.sta.sae_h2e_identifier, wifi_pwid.c_str(), wifi_pwid.length() <= sizeof(wifi_config.sta.sae_h2e_identifier) ? wifi_pwid.length() : sizeof(wifi_config.sta.sae_h2e_identifier));
 #ifdef CONFIG_ESP_WIFI_WPA3_COMPATIBLE_SUPPORT
         wifi_config.sta.disable_wpa3_compatible_mode = 0;
 #endif

@@ -93,13 +93,15 @@ extern "C" void app_main(void)
 #endif
 
     register_misc_cmdline_tools();
+    register_network_config_cmdline_tools();
 
     printf("\n ==============================================================\n");
     printf(" |            Steps to Use io-rts-esp32                       |\n");
     printf(" |                                                            |\n");
-    printf(" |  1. Try 'help', check all supported commands               |\n");
-    printf(" |  2. Try 'io_' + TAB for IO commands auto-completion        |\n");
-    printf(" |  3. Try 'reboot' to reboot the ESP32                       |\n");
+    printf(" |  Try 'help' to check all supported commands                |\n");
+    printf(" |  Try 'io_' + TAB for IO commands auto-completion           |\n");
+    printf(" |  Try 'reboot' to reboot the ESP32                          |\n");
+    printf(" |  Try 'config_' + TAB for config commands auto-completion   |\n");
     printf(" |                                                            |\n");
     printf(" ==============================================================\n\n");
 

@@ -32,6 +32,12 @@ namespace Helpers
         template<typename T>
         static esp_err_t SetValue(const std::string &name_space, const std::string &key, const T &value);
 
+        /// @brief Delete a value of any type (including string) in default NVS partition
+        /// @param name_space the namespace containing the key/value pair to delete
+        /// @param key the key associated to the value to delete
+        /// @return ESP_OK if no error (value deleted in NVS), or any other error
+        static esp_err_t DeleteValue(const std::string &name_space, const std::string &key);
+
         /// @brief Get a string value from default NVS partition
         /// @param name_space the namespace containing the key/value pair to retrieve
         /// @param key the key associated to the value to retrieve

@@ -124,6 +124,15 @@ namespace Config
     }
 
 #ifdef CONFIG_CONNECTIVITY_CHOICE_WIFI
+    void NetworkConfig::DeleteWifiConfig()
+    {
+        NvsHelpers::DeleteValue(NETWORK_CONFIG_NAMESPACE, NETWORK_CONFIG_WIFI_SSID);
+        NvsHelpers::DeleteValue(NETWORK_CONFIG_NAMESPACE, NETWORK_CONFIG_WIFI_PWD);
+        NvsHelpers::DeleteValue(NETWORK_CONFIG_NAMESPACE, NETWORK_CONFIG_WIFI_SAE_MODE);
+        NvsHelpers::DeleteValue(NETWORK_CONFIG_NAMESPACE, NETWORK_CONFIG_WIFI_PWID);
+        NvsHelpers::DeleteValue(NETWORK_CONFIG_NAMESPACE, NETWORK_CONFIG_WIFI_AUTH_MODE_THRESHOLD);
+    }
+
     const std::string NetworkConfig::GetWifiSSID()
     {
         std::string wifi_ssid = CONFIG_ESP_WIFI_SSID;
@@ -133,6 +142,10 @@ namespace Config
 
     esp_err_t NetworkConfig::SetWifiSSID(const std::string &ssid)
     {
+        if (ssid.length() > sizeof(wifi_sta_config_t::ssid))
+        {
+            return ESP_ERR_INVALID_ARG;
+        }
         return NvsHelpers::SetString(NETWORK_CONFIG_NAMESPACE, NETWORK_CONFIG_WIFI_SSID, ssid);
     }
 
@@ -145,6 +158,10 @@ namespace Config
 
     esp_err_t NetworkConfig::SetWifiPassword(const std::string &password)
     {
+        if (password.length() > sizeof(wifi_sta_config_t::password))
+        {
+            return ESP_ERR_INVALID_ARG;
+        }
         return NvsHelpers::SetString(NETWORK_CONFIG_NAMESPACE, NETWORK_CONFIG_WIFI_PWD, password);
     }
 
@@ -163,6 +180,10 @@ namespace Config
 
     esp_err_t NetworkConfig::SetWifiSAEMode(wifi_sae_pwe_method_t mode)
     {
+        if (mode < WPA3_SAE_PWE_UNSPECIFIED || mode > WPA3_SAE_PWE_BOTH)
+        {
+            return ESP_ERR_INVALID_ARG;
+        }
         return NvsHelpers::SetValue(NETWORK_CONFIG_NAMESPACE, NETWORK_CONFIG_WIFI_SAE_MODE, static_cast<uint8_t>(mode));
     }
 
@@ -175,6 +196,10 @@ namespace Config
 
     esp_err_t NetworkConfig::SetSAEPasswordId(const std::string &id)
     {
+        if (id.length() > sizeof(wifi_sta_config_t::sae_h2e_identifier))
+        {
+            return ESP_ERR_INVALID_ARG;
+        }
         return NvsHelpers::SetString(NETWORK_CONFIG_NAMESPACE, NETWORK_CONFIG_WIFI_PWID, id);
     }
 
@@ -203,7 +228,48 @@ namespace Config
 
     esp_err_t NetworkConfig::SetWifiAuthModeThreshold(wifi_auth_mode_t threshold)
     {
+        if (threshold < WIFI_AUTH_OPEN || threshold >= WIFI_AUTH_MAX)
+        {
+            return ESP_ERR_INVALID_ARG;
+        }
         return NvsHelpers::SetValue(NETWORK_CONFIG_NAMESPACE, NETWORK_CONFIG_WIFI_AUTH_MODE_THRESHOLD, static_cast<uint8_t>(threshold));
+    }
+
+    const std::string NetworkConfig::WifiAuthModeToString(wifi_auth_mode_t authMode)
+    {
+        switch (authMode)
+        {
+        case WIFI_AUTH_OPEN:
+            return std::string("OPEN");
+        case WIFI_AUTH_WEP:
+            return std::string("WEP");
+        case WIFI_AUTH_WPA_PSK:
+            return std::string("WPA-PSK");
+        case WIFI_AUTH_WPA2_PSK:
+            return std::string("WPA2-PSK");
+        case WIFI_AUTH_WPA_WPA2_PSK:
+            return std::string("WPA/WPA2-PSK");
+        case WIFI_AUTH_WPA3_PSK:
+            return std::string("WPA3-PSK");
+        case WIFI_AUTH_WPA2_WPA3_PSK:
+            return std::string("WPA2/WPA3-PSK");
+        case WIFI_AUTH_WAPI_PSK:
+            return std::string("WAPI-PSK");
+        default:
+            return std::string("[INVALID]");
+        }
+    }
+    wifi_auth_mode_t NetworkConfig::StringToWifiAuthMode(const std::string &authMode)
+    {
+        if (std::string("OPEN").compare(authMode) == 0) return WIFI_AUTH_OPEN;
+        if (std::string("WEP").compare(authMode) == 0) return WIFI_AUTH_WEP;
+        if (std::string("WPA-PSK").compare(authMode) == 0) return WIFI_AUTH_WPA_PSK;
+        if (std::string("WPA2-PSK").compare(authMode) == 0) return WIFI_AUTH_WPA2_PSK;
+        if (std::string("WPA/WPA2-PSK").compare(authMode) == 0) return WIFI_AUTH_WPA_WPA2_PSK;
+        if (std::string("WPA3-PSK").compare(authMode) == 0) return WIFI_AUTH_WPA3_PSK;
+        if (std::string("WPA2/WPA3-PSK").compare(authMode) == 0) return WIFI_AUTH_WPA2_WPA3_PSK;
+        if (std::string("WAPI-PSK").compare(authMode) == 0) return WIFI_AUTH_WAPI_PSK;
+        return WIFI_AUTH_MAX;
     }
 #endif // CONFIG_CONNECTIVITY_CHOICE_WIFI
 }

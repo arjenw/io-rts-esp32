@@ -88,6 +88,9 @@ namespace Config
 
 #ifdef CONFIG_CONNECTIVITY_CHOICE_WIFI
 
+        /// @brief Delete all Wifi configuration in storage
+        static void DeleteWifiConfig();
+
         /// @brief Get Wifi SSID from configuration storage
         /// @return Wifi SSID
         static const std::string GetWifiSSID();
@@ -132,6 +135,16 @@ namespace Config
         /// @param threshold authentication mode threshold
         /// @return ESP_OK if configuration put to storage without error
         static esp_err_t SetWifiAuthModeThreshold(wifi_auth_mode_t threshold);
+
+        /// @brief Convert wifi_auth_mode_t to string
+        /// @param authMode authentication mode (wifi_auth_mode_t)
+        /// @return authentication mode (string)
+        static const std::string WifiAuthModeToString(wifi_auth_mode_t authMode);
+
+        /// @brief Convert string to wifi_auth_mode_t
+        /// @param authMode authentication mode (string)
+        /// @return authentication mode (wifi_auth_mode_t)
+        static wifi_auth_mode_t StringToWifiAuthMode(const std::string &authMode);
 
 #endif // CONFIG_CONNECTIVITY_CHOICE_WIFI
     };

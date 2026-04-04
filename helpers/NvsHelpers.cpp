@@ -97,6 +97,35 @@ namespace Helpers
     template esp_err_t NvsHelpers::SetValue<uint64_t>(const std::string &name_space, const std::string &key, const uint64_t &value);
     template esp_err_t NvsHelpers::SetValue<int64_t>(const std::string &name_space, const std::string &key, const int64_t &value);
 
+    esp_err_t NvsHelpers::DeleteValue(const std::string &name_space, const std::string &key)
+    {
+        esp_err_t err = ESP_OK;
+        nvs_type_t type;
+        if (sNvsHandle == nullptr)
+            sNvsHandle = nvs::open_nvs_handle(name_space.c_str(), NVS_READWRITE, &err);
+        if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+        }
+        else if (sNvsHandle->find_key(key.c_str(), type) != ESP_OK) return ESP_OK; // Key doesn't exist
+        else
+        {
+            // Delete
+            err = sNvsHandle->erase_item(key.c_str());
+            if (err != ESP_OK)
+            {
+                ESP_LOGE(TAG, "Error (%s) writing value for key %s in NVS namespace %s!\n", esp_err_to_name(err), key.c_str(), name_space.c_str());
+            }
+            // Commit
+            err = sNvsHandle->commit();
+            if (err != ESP_OK)
+            {
+                ESP_LOGE(TAG, "Error (%s) committing value for key %s in NVS namespace %s!\n", esp_err_to_name(err), key.c_str(), name_space.c_str());
+            }
+        }
+        return err;
+    }
+
     esp_err_t NvsHelpers::GetString(const std::string &name_space, const std::string &key, std::string &value)
     {
         esp_err_t err = ESP_OK;
