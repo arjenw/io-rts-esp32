@@ -723,7 +723,7 @@ void register_config_network(void)
     config_network_args.gateway = arg_str0(NULL, "gateway", "<gateway>", "Gateway IPv4 address for static configuration");
     config_network_args.dns_main_srv = arg_str0(NULL, "dns1", "<DNS1 address>", "Main DNS server address for static configuration");
     config_network_args.dns_back_serv = arg_str0(NULL, "dns2", "<DNS2 address>", "Backup DNS server address for static configuration");
-    config_network_args.ntp_srv = arg_str0(NULL, "ntp", "<NTP address>", "NTP server IPv4 address");
+    config_network_args.ntp_srv = arg_str0(NULL, "ntp", "<NTP address>", "NTP server address (eg pool.ntp.org)");
     config_network_args.end = arg_end(10);
 
     const esp_console_cmd_t config_network_cmd = {
