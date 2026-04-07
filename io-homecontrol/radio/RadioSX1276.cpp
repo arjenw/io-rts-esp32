@@ -28,7 +28,7 @@ static void IRAM_ATTR gpio_isr_handler(void *arg)
     uint32_t gpio_num = (uint32_t)arg;
     if (!xQueueSendFromISR(sGpioEvtQueue, &gpio_num, NULL))
     {
-        ESP_LOGI("RADIO", "gpio_isr_handler can't add received frame to queue!");
+        ESP_DRAM_LOGI("RADIO", "gpio_isr_handler can't add received frame to queue!");
     }
 }
 
