@@ -28,13 +28,13 @@ constexpr TickType_t RECEIVED_IO_TREATMENT_WAIT_TICKS = 500 * portTICK_PERIOD_MS
 constexpr TickType_t RECEIVED_IO_DISCOVERY_RESPONSE_WAIT_TICKS = 2000 * portTICK_PERIOD_MS; // 2s, I have seen devices between 1s and 1.5s!
 
 constexpr TickType_t UPDATE_STATUS_WAKEUP_INTERVAL_MS = 1000; // 1 second
-constexpr TickType_t TIME_BETWEEN_RETRY_MS = 250; // 250 ms
+constexpr TickType_t TIME_BETWEEN_RETRY_MS = 250;             // 250 ms
 
 constexpr UBaseType_t RADIO_FRAME_PROCESSING_PRIORITY = tskIDLE_PRIORITY + 8; // priority higher than IDLE as we want relevant frequency hopping
-constexpr UBaseType_t IO_FRAME_PROCESSING_TASK = tskIDLE_PRIORITY + 6; // priority higher than IDLE but less than radio, to perform IO frame work
-constexpr UBaseType_t DEVICE_STATUS_UPDATE_PRIORITY = tskIDLE_PRIORITY + 4; // priority higher than IDLE but less than IO processing, to launch status update
-constexpr UBaseType_t DEVICE_STATUS_CALLBACK_PRIORITY = tskIDLE_PRIORITY; // priority same as IDLE (low priority)
-constexpr UBaseType_t LOG_CALLBACK_PRIORITY = tskIDLE_PRIORITY; // priority same as IDLE (low priority)
+constexpr UBaseType_t IO_FRAME_PROCESSING_TASK = tskIDLE_PRIORITY + 6;        // priority higher than IDLE but less than radio, to perform IO frame work
+constexpr UBaseType_t DEVICE_STATUS_UPDATE_PRIORITY = tskIDLE_PRIORITY + 4;   // priority higher than IDLE but less than IO processing, to launch status update
+constexpr UBaseType_t DEVICE_STATUS_CALLBACK_PRIORITY = tskIDLE_PRIORITY;     // priority same as IDLE (low priority)
+constexpr UBaseType_t LOG_CALLBACK_PRIORITY = tskIDLE_PRIORITY;               // priority same as IDLE (low priority)
 
 constexpr int64_t STATUS_UPDATE_MAX_TIME_US = 3600000000;   // 1 hour to next status update if nothing happens before
 constexpr int64_t STATUS_UPDATE_AUTO_MARGIN_US = 60000000;  // 60 seconds to wait for automatic update from device
@@ -628,12 +628,18 @@ namespace iohome
           if ((esp_timer_get_time() > it->second.last_status_timestamp + STATUS_UPDATE_MAX_TIME_US) // previous update is a long time ago
               || (it->second.next_status_update_timestamp < esp_timer_get_time()))                  // or we know that we should update due to previous status received
           {
-            if (it->second.info.device_type == DeviceType::UNKNOWN) // at init
+            if (strlen(it->second.info.name) == 0) // at init
             {
               DeviceGetName(it->first);
-              DeviceGetGeneralInfo2(it->first); // contains some product number / model number / CIE? + device type and subtype!
+            }
+            if (strlen(it->second.info.info1) == 0) // at init
+            {
               // DeviceGetGeneralInfo1(it->first); // contains some product number / model number / CIE?
               // DeviceGetGeneralInfo3(it->first); // not interesting until we know what the response contains!
+            }
+            if (it->second.info.device_type == DeviceType::UNKNOWN) // at init
+            {
+              DeviceGetGeneralInfo2(it->first); // contains some product number / model number / CIE? + device type and subtype!
             }
             // So let's update device status
             if (xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
@@ -878,7 +884,7 @@ namespace iohome
           memcpy(it->second.info.name, name.c_str(), name.length());
           if (!xQueueSendToBack(sIoDeviceStatusQueue, &it->second, 0))
           {
-            IO_LOGE("UpdateDeviceStatus can't add received frame to IO queue!");
+            IO_LOGE("UpdateDeviceStatus can't add device to queue!");
           }
           ret = true;
         }
@@ -1216,7 +1222,13 @@ namespace iohome
         }
         // When do we want to update next time?
         if (deviceIt->second.is_stopped)
-          deviceIt->second.next_status_update_timestamp = esp_timer_get_time() + STATUS_UPDATE_MAX_TIME_US;
+        {
+          if (deviceIt->second.info.device_type == DeviceType::UNKNOWN || strlen(deviceIt->second.info.name) == 0)
+          {
+            deviceIt->second.next_status_update_timestamp = esp_timer_get_time() + STATUS_UPDATE_NEXT_TRY_US; // missing info, retry later
+          }
+          else deviceIt->second.next_status_update_timestamp = esp_timer_get_time() + STATUS_UPDATE_MAX_TIME_US; // everything is OK, no update required
+        }
         else
         {
           // Currently moving, try to guess when we should have next status update
@@ -1236,7 +1248,7 @@ namespace iohome
         }
         if (!xQueueSendToBack(sIoDeviceStatusQueue, &deviceIt->second, 0))
         {
-          IO_LOGE("UpdateDeviceStatus can't add received frame to IO queue!");
+          IO_LOGE("UpdateDeviceStatus can't add device to queue!");
         }
       }
       else
@@ -1273,7 +1285,13 @@ namespace iohome
         }
         // When do we want to update next time?
         if (deviceIt->second.is_stopped)
-          deviceIt->second.next_status_update_timestamp = esp_timer_get_time() + STATUS_UPDATE_MAX_TIME_US;
+        {
+          if (deviceIt->second.info.device_type == DeviceType::UNKNOWN || strlen(deviceIt->second.info.name) == 0)
+          {
+            deviceIt->second.next_status_update_timestamp = esp_timer_get_time() + STATUS_UPDATE_NEXT_TRY_US; // missing info, retry later
+          }
+          else deviceIt->second.next_status_update_timestamp = esp_timer_get_time() + STATUS_UPDATE_MAX_TIME_US; // everything is OK, no update required
+        }
         else
         {
           // Currently moving, try to guess when we should have next status update
@@ -1293,7 +1311,7 @@ namespace iohome
         }
         if (!xQueueSendToBack(sIoDeviceStatusQueue, &deviceIt->second, 0))
         {
-          IO_LOGE("UpdateDeviceStatus can't add received frame to IO queue!");
+          IO_LOGE("UpdateDeviceStatus can't add device to queue!");
         }
       }
       else
@@ -1370,7 +1388,5 @@ namespace iohome
       return false;
     }
   }
-
-  
 
 } // namespace iohome
