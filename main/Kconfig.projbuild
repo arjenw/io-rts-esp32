@@ -257,6 +257,65 @@ menu "IO RTS Project Configuration"
                 GPIO number for DIO4 pin connected to SX1276 radio module.
     endmenu
 
+    menu "MQTT Client configuration"
+        config MQTT_CLIENT_ENABLE
+            bool "Enable MQTT client"
+            default y
+
+        config MQTT_BROKER_ADDRESS
+            string "MQTT Broker address"
+            default "192.168.1.203"
+            help
+                MQTT broker address.
+        
+        config MQTT_BROKER_PORT
+            int "MQTT Broker port"
+            range 1 65535
+            default 1883
+            help
+                MQTT broker listening port.
+        
+        config MQTT_CLIENT_ID
+            string "MQTT Client ID"
+            default "io-rts-esp32"
+            help
+                MQTT Client ID must be unique to connect to broker. It is also used as an identifier for Discovery message
+
+        config MQTT_CLIENT_USERNAME
+            string "MQTT Client username"
+            default "mqtt_user"
+            help
+                MQTT Client username to connect to broker.
+
+        config MQTT_CLIENT_PASSWORD
+            string "MQTT Client password"
+            default "mqtt_password"
+            help
+                MQTT Client password to connect to broker.
+
+        config MQTT_CLIENT_TLS_ENABLED
+            bool "Enable TLS to connect to broker"
+            default n
+
+        config MQTT_BROKER_CERTIFICATE
+            string "MQTT broker certificate"
+            default "-"
+            help
+                MQTT broker certificate (content of .pem file without --- BEGIN CERTIFICATE --- and ---END CERTIFICATE ---).
+
+        config MQTT_TOPIC_PREFIX
+            string "MQTT topic prefix"
+            default "io-rts"
+            help
+                Prefix added before all MQTT topics except discovery.
+        
+        config MQTT_DISCOVERY_PREFIX
+            string "MQTT discovery prefix"
+            default "homeassistant/device/io-rts"
+            help
+                Prefix added before discovery topic. Discovery topic will be <MQTT_DISCOVERY_PREFIX>/config
+    endmenu
+
     menu "SPI_HOST2 Configuration"
         depends on ETHERNET_SPI_HOST2 || IOHOMECONTROL_SX1276_SPI_HOST2
 

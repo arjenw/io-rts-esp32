@@ -3,8 +3,7 @@
 
 #include "HardwareConfig.hpp"
 #include "NetworkHelpers.hpp"
-#include "RadioSX1276.hpp"
-#include "IoHomeControl.hpp"
+#include "IoRtsManager.hpp"
 #include "cmd_line_management.hpp"
 
 #include "esp_log.h"
@@ -13,32 +12,7 @@
 
 using namespace Helpers;
 
-static const char *TAG = "io-rts-esp32";
-
-#ifdef CONFIG_ENABLE_IOHOMECONTROL
-static void loggerCallback(esp_log_level_t log_level, const char *tag, std::string log)
-{
-    switch (log_level)
-    {
-    case ESP_LOG_ERROR:
-        ESP_LOGE(tag, "%s", log.c_str());
-        break;
-    case ESP_LOG_INFO:
-        ESP_LOGI(tag, "%s", log.c_str());
-        break;
-    default:
-        break;
-    }
-}
-
-static void deviceStatusCallback(const std::string deviceID, const iohome::IoDevice &device)
-{
-    ESP_LOGI(TAG, "Callback received device status for %s: %s (0x%02X/0x%02X) / Position %.1f / Moving: %s",
-             deviceID.c_str(), device.info.name, device.info.device_type, device.info.device_subtype,
-             device.position,
-             device.is_stopped ? "No" : "Yes");
-}
-#endif // ENABLE_IOHOMECONTROL
+// static const char *TAG = "io-rts-esp32";
 
 extern "C" void app_main(void)
 {
@@ -50,27 +24,8 @@ extern "C" void app_main(void)
     NetworkHelpers::InitNetwork();
     vTaskDelay(pdMS_TO_TICKS(5000));
 
-    // Initialize IO-HOMECONTROL
-#ifdef CONFIG_ENABLE_IOHOMECONTROL
-#ifdef CONFIG_IOHOMECONTROL_LOGGING_ENABLED
-    bool logging = true;
-#else
-    bool logging = false;
-#endif
-#ifdef CONFIG_IOHOMECONTROL_PASSIVE_MODE
-    bool passive = true;
-#else
-    bool passive = false;
-#endif
-    RadioLinks::RadioSX1276 radio(Config::GetSX1276SpiHost(),
-                                  CONFIG_IOHOMECONTROL_SX1276_SPI_CS, CONFIG_IOHOMECONTROL_SX1276_RST,
-                                  CONFIG_IOHOMECONTROL_SX1276_DIO0, CONFIG_IOHOMECONTROL_SX1276_DIO4);
-    iohome::IoHomeControl ioHome(&radio, loggerCallback, deviceStatusCallback);
-    ioHome.SetVerbose(logging);
-    ioHome.Begin(CONFIG_IOHOMECONTROL_DEFAULT_NODEID, CONFIG_IOHOMECONTROL_DEFAULT_KEY, passive);
-    ioHome.ConfigureRadio(CONFIG_IOHOMECONTROL_DEFAULT_TX_POWER);
-    ioHome.StartReceive();
-#endif // ENABLE_IOHOMECONTROL
+    // Initialize Manager
+    IoRts::IoRtsManager ioRtsManager = IoRts::IoRtsManager();
 
     // Initialize Command line tools
     esp_console_repl_t *repl = NULL;
@@ -89,11 +44,12 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&usbjtag_config, &repl_config, &repl));
 #endif
 #ifdef CONFIG_ENABLE_IOHOMECONTROL
-    register_io_cmdline_tools(&ioHome);
+    register_io_cmdline_tools(ioRtsManager.mIoHome);
 #endif
 
     register_misc_cmdline_tools();
     register_network_config_cmdline_tools();
+    register_mqtt_config_cmdline_tools();
 
     printf("\n ==============================================================\n");
     printf(" |            Steps to Use io-rts-esp32                       |\n");
