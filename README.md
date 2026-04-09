@@ -41,18 +41,28 @@ These features are currently available:
     - Reboot ESP32
     - Change Wifi configuration without reflashing firmware (configuration applied after reboot)
     - Change DHCP/IPv4 configuration without reflashing firmware (configuration applied after reboot)
+    - Change MQTT configuration without reflashing firmware (configuration applied after reboot)
+  - MQTT support:
+    - Discovery message is published and compatible with Home Assistant, permitting to automatically add devices to it without extra configuration (only in active mode).
+    - Currently all devices based on position (shutter, blind, awning, window opener, garage opener, gate opener), ON/OFF switch, ON/OFF light and locks are expected to work.
+    - In addition to devices, a button is added to reboot the ESP32 board.
 - Configuration storage to flash
 
 These features should be available before end of 2026 depending on my available time:
 - New features from command line (expected April 2026 :calendar:):
+  - Delete device / remote
   - Change IO-Homecontrol configuration (enable/disable logging, active/passive mode, change IO key, change NodeID, change Tx power) without reflashing firmware
-- MQTT (expected April-May 2026 :calendar:): devices control and status, with plug and play integration in Home Assistant without extra work on your side
+- MQTT (expected April-May 2026 :calendar:):
+  - Add "Favorite position" button for devices based on position (shutter, blind, awning, window opener, garage opener, gate opener)
+  - Discover / add / delete device
+  - Link remote to device / delete remote
+  - Configuration from MQTT (in addition to command line capability)
 - Devices storage to flash (expected April-May 2026 :calendar:)
 - ESP32 security features (expected April-June 2026 :calendar:, optional, enable if you want): flash encryption, secure boot, firmware signature
 - OTA sofware update (expected April-June 2026 :calendar:): update over Wifi/Ethernet, without flashing from USB, with rollback in case of failure
 - RTS protocol for legacy devices, based on CC1101 module (expected August-October 2026 :calendar:)
 
-These features could be added later, if useful:
+These features could be added, if useful:
 - Support for new devices: I don't have these devices, my devices work well, so it will depend on you!
 - Web: configuration, devices control and status
 
@@ -94,7 +104,7 @@ By default the project is configured with verbose enabled and in passive mode: y
 
 As previously explained, in passive mode (don't forget to enable verbose) you will get very useful information about your IO-Homecontrol devices.
 Once in this mode, you should:
-1. Use each remote to control each device (you can press the "open even if the blind is already opened, it is enough to get what you want). You will see logs like "command 00 from XXXXXX to 00003F" &rarr; note the XXXXXX, it is the ID of your remote.
+1. Use each remote to control each device (you can press the "open" button even if the blind is already opened, it is enough to get what you want). You will see logs like "command 00 from XXXXXX to 00003F" &rarr; note the XXXXXX, it is the ID of your remote.
 2. If you have a box (Tahoma, connectivity kit, ...), choose a device that is easy to reset and then extract your site key:
   - Remove the device from the app (like Tahoma app)
   - Reset the device to forget any previously paired remote or box
