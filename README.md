@@ -94,7 +94,7 @@ Here are a few steps to follow to start with this project:
 1. If you are nor familiar with VSCode and ESP-IDF, I encourage you to read ESP-IDF starting guide and try the "Hello world" example on your ESP32-S3 board. You should be able to build the example, flash the binary to your ESP32-S3 board and monitor the execution from ESP-IDF monitor tool before going to next step.
 2. Download this project / clone the repository, then open the project folder in VSCode.
 3. Choose the ESP32-S3 target
-4. Open "SDK Configuration Editor" to configure the project and go to "IO RTS Project Configuration" section. Configure network and choose the GPIO pins you want to use to connect the SX1276 radio module. The default configuration is compatible with the [Lilygo T3S3 SX1276 board](https://wiki.lilygo.cc/get_started/en/LoRa_GPS/T3S3/T3S3.html#Pin-Overview) even if I have never testes this board...
+4. Open "SDK Configuration Editor" to configure the project and go to "IO RTS Project Configuration" section. Configure network and choose the GPIO pins you want to use to connect the SX1276 radio module. The default configuration is compatible with the [Lilygo T3S3 SX1276 board](https://wiki.lilygo.cc/get_started/en/LoRa_GPS/T3S3/T3S3.html#Pin-Overview) even if I have never tested this board...
 5. Use wires to connect all the pins between ESP32-S3 board and SX1276 module (power, ground, and all pins chosen in the configuration)
 6. Build the source code, flash it to the board and monitor (there is single button that does everything if you are confident, otherwise, use the 3 buttons in this order).
 
