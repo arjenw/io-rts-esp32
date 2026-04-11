@@ -249,9 +249,8 @@ namespace iohome
         const IoFrame &origin_frame,
         const uint8_t *key)
     {
-        // Initialize frame for 2W mode, with START flag so the radio task
-        // waits 300ms (instead of 50ms) for the device's final response
-        init_frame(outframe, true, true);
+        // Initialize frame for 2W mode
+        init_frame(outframe);
 
         // Set source and destination
         set_destination(outframe, dest_node);
