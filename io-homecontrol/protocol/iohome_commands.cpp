@@ -296,7 +296,7 @@ namespace iohome
         set_source(frame, own_node_id);
 
         // Set data
-        uint8_t data[16];
+        uint8_t data[CMD_PARAM_NAME_MAXSIZE / 2];
         memset(data, 0, sizeof(data));
         memcpy(data, name, name_length < sizeof(data) ? name_length : sizeof(data) - 1);
 
