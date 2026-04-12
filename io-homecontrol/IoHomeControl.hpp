@@ -185,8 +185,9 @@ namespace iohome
     /// @brief Transmit a frame
     /// @param frame IoFrame to transmit
     /// @param frequency Frequency to transmit the frame
+    /// @param preamble preamble length before frame data
     /// @return true on success, false on error
-    bool TransmitFrame(const IoFrame &frame, uint32_t frequency);
+    bool TransmitFrame(const IoFrame &frame, uint32_t frequency, uint16_t preamble);
 
     /// @brief Sends a provided request on specified frequency and provide a response in return. Manages authentication automatically.
     /// @warning You must take sMutex before calling!

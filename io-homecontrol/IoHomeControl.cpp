@@ -94,6 +94,7 @@ namespace iohome
   struct TxFrameQueueItem
   {
     uint32_t frequency; // Frequency used to send
+    uint16_t preamble;  // Preamble length before frame
     IoFrame frame;      // IO frame
   };
 
@@ -293,7 +294,7 @@ namespace iohome
                   item.frequency / 1000000.0, item.frame.command_id, buffToHexString(NODE_ID_SIZE, item.frame.src_node), buffToHexString(NODE_ID_SIZE, item.frame.dest_node),
                   item.frame.ctrl_byte_0, item.frame.ctrl_byte_1, item.frame.data_len, buffToHexString(item.frame.data_len, item.frame.data));
           // Process frame to send
-          uint16_t preamble = is_start(item.frame) ? LONG_PREAMBLE_LENGTH : SHORT_PREAMBLE_LENGTH;
+          uint16_t preamble = item.preamble;
           // Transmit
           uint8_t buffer[FRAME_MAX_SIZE];
           uint8_t size = serialize_frame(item.frame, buffer, sizeof(buffer));
@@ -576,7 +577,7 @@ namespace iohome
                   // Authenticated so reply OK and let's use the status update received from device
                   IoFrame end;
                   create_status_update_response(end, mOwnNodeId, item.frame.src_node); // reply OK
-                  TransmitFrame(end, item.frequency);                                  // send response
+                  TransmitFrame(end, item.frequency, SHORT_PREAMBLE_LENGTH);           // send response
                   UpdateDeviceStatus(item.frame);                                      // Update device status
                 }
                 else
@@ -584,7 +585,7 @@ namespace iohome
                   IO_LOGE("ProcessReceivedFrameTask - Failed to authenticate status update received from device");
                   IoFrame end;
                   create_error_response(end, mOwnNodeId, item.frame.src_node, CMD_PARAM_ERROR_BAD_AUTH);
-                  TransmitFrame(end, item.frequency); // send authentication error response
+                  TransmitFrame(end, item.frequency, SHORT_PREAMBLE_LENGTH); // send authentication error response
                 }
               }
               else
@@ -744,7 +745,7 @@ namespace iohome
       vTaskPrioritySet(NULL, IO_FRAME_PROCESSING_TASK); // change task priority to higher!
       // Send discovery request
       if (create_discovery_request(request, mOwnNodeId)                                                                                          // request created
-          && TransmitFrame(request, FREQUENCY_CHANNEL_2)                                                                                         // send OK, received something
+          && TransmitFrame(request, FREQUENCY_CHANNEL_2, LONG_PREAMBLE_LENGTH)                                                                   // send OK, received something
           && xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_DISCOVERY_RESPONSE_WAIT_TICKS) && (rxItem.frame.command_id == CMD_DISCOVER_RESPONSE) // expected answer
           && process_discovery_response(rxItem.frame, device))                                                                                   // discovery response parsing OK
       {
@@ -754,8 +755,8 @@ namespace iohome
             && (response.command_id == CMD_DISCOVER_CONFIRMATION_ACK))                      // expected answer
         {
           // We have confirmed discovery, let's start pairing process
-          if (create_init_transfer(request, mOwnNodeId, device.info.node_id) // request created
-              && TransmitFrame(request, FREQUENCY_CHANNEL_2))                // send OK
+          if (create_init_transfer(request, mOwnNodeId, device.info.node_id)        // request created
+              && TransmitFrame(request, FREQUENCY_CHANNEL_2, LONG_PREAMBLE_LENGTH)) // send OK
           {
             // We have sent key init request, let's get challenge from device
             if (xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS))
@@ -782,8 +783,8 @@ namespace iohome
                   IO_LOGI("DiscoverAndPairDevice: device {} added!", deviceID);
                   ret = true;
                   // Now try to find "sub devices" (like a light or switch on DexxoSmartio800)
-                  if (create_discoveryspe_request(request, mOwnNodeId, mSystemKey) // request created
-                      && TransmitFrame(request, FREQUENCY_CHANNEL_2))              // send OK
+                  if (create_discoveryspe_request(request, mOwnNodeId, mSystemKey)          // request created
+                      && TransmitFrame(request, FREQUENCY_CHANNEL_2, LONG_PREAMBLE_LENGTH)) // send OK
                   {
                     while ((xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS)))
                     {
@@ -1067,13 +1068,14 @@ namespace iohome
     sRemoteMap.erase(remoteID);
   }
 
-  bool IoHomeControl::TransmitFrame(const IoFrame &ioframe, uint32_t frequency)
+  bool IoHomeControl::TransmitFrame(const IoFrame &ioframe, uint32_t frequency, uint16_t preamble)
   {
     if (!mInitialized || !mReceiving || mPassiveMode)
       return false;
     // Transmit: add to queue
     TxFrameQueueItem item;
     memcpy(&item.frame, &ioframe, sizeof(IoFrame));
+    item.preamble = preamble;
     item.frequency = frequency;
 
     if (!xQueueSendToBack(sTxIoQueue, &item, 0))
@@ -1091,6 +1093,7 @@ namespace iohome
   bool IoHomeControl::SendAndReceive(const IoFrame &request, IoFrame &response, uint32_t frequency)
   {
     uint8_t tries = 3;
+    bool setStartFlagToAuthentResponse = false;
     while (tries > 0)
     {
       if (tries < 3)
@@ -1098,7 +1101,7 @@ namespace iohome
       tries--;
 
       // IO_LOGI("SendAndReceive");
-      if (TransmitFrame(request, frequency))
+      if (TransmitFrame(request, frequency, is_start(request) ? LONG_PREAMBLE_LENGTH : SHORT_PREAMBLE_LENGTH))
       {
         RxFrameQueueItem rxItem;
         if (xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS))
@@ -1118,27 +1121,37 @@ namespace iohome
 
           // We have to authenticate!
           IoFrame challengeResponse;
-          if (create_challenge_response(challengeResponse, request.dest_node, mOwnNodeId, rxItem.frame.data, request, mSystemKey) && TransmitFrame(challengeResponse, frequency))
+          if (create_challenge_response(challengeResponse, request.dest_node, mOwnNodeId, rxItem.frame.data, request, mSystemKey))
           {
-            // Now wait for final response
-            if (xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS))
+            if (setStartFlagToAuthentResponse) challengeResponse.ctrl_byte_0 |= CTRL0_START; // Set Start bit
+            if (TransmitFrame(challengeResponse, frequency, SHORT_PREAMBLE_LENGTH))
             {
-              // We have a response, check it
-              if (memcmp(rxItem.frame.src_node, request.dest_node, NODE_ID_SIZE) == 0     // same device?
-                  && memcmp(rxItem.frame.dest_node, request.src_node, NODE_ID_SIZE) == 0) // for us?
+              // Now wait for final response
+              if (xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS))
               {
-                memcpy(&response, &rxItem.frame, sizeof(response));
-                return true;
+                // We have a response, check it
+                if (memcmp(rxItem.frame.src_node, request.dest_node, NODE_ID_SIZE) == 0     // same device?
+                    && memcmp(rxItem.frame.dest_node, request.src_node, NODE_ID_SIZE) == 0) // for us?
+                {
+                  memcpy(&response, &rxItem.frame, sizeof(response));
+                  return true;
+                }
+                else
+                  IO_LOGE("SendAndReceive: received a final response not for current exchange!");
               }
-              else
-                IO_LOGE("SendAndReceive: received a final response not for current exchange!");
+              setStartFlagToAuthentResponse = true;
+              IO_LOGE("SendAndReceive: didn't receive final response!");
+              continue;
             }
-            IO_LOGE("SendAndReceive: didn't receive final response!");
-            continue;
+            else
+            {
+              IO_LOGE("ProcessReceivedFrameTask - Error: Failed to send challenge request");
+              continue;
+            }
           }
           else
           {
-            IO_LOGE("ProcessReceivedFrameTask - Error: Failed to create or send challenge request");
+            IO_LOGE("ProcessReceivedFrameTask - Error: Failed to create challenge request");
             continue;
           }
         }
@@ -1162,7 +1175,7 @@ namespace iohome
     // IO_LOGI("AuthenticateReceivedRequest");
     // Send challenge
     IoFrame challengeFrame;
-    if (!create_challenge_request(challengeFrame, request.src_node, mOwnNodeId) || !TransmitFrame(challengeFrame, frequency))
+    if (!create_challenge_request(challengeFrame, request.src_node, mOwnNodeId) || !TransmitFrame(challengeFrame, frequency, SHORT_PREAMBLE_LENGTH))
     {
       IO_LOGE("Error: Failed to create/send challenge request");
       return false;
