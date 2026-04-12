@@ -51,7 +51,6 @@ These features are currently available:
 - Devices storage to flash (thanks [@kfroeschl](https://github.com/kfroeschl))
 
 These features should be available before end of 2026 depending on my available time:
-- Support SX1276 without DIO4 pin wired to ESP32 (expected April 2026 :calendar:)
 - New features from command line (expected April 2026 :calendar:):
   - Change IO-Homecontrol configuration (enable/disable logging, active/passive mode, change IO key, change NodeID, change Tx power) without reflashing firmware
 - MQTT (expected April-May 2026 :calendar:):
@@ -70,7 +69,7 @@ These features could be added, if useful:
 ### Hardware requirements
 In order to execute this project, you will need:
 - ESP32-S3 board
-- SX1276 radio module (it can be included on the ESP32 board) with SPI (SCLK, MOSI, MISO, CS) and RST, DIO0 and DIO4 pins wired to ESP32.
+- SX1276 radio module (it can be included on the ESP32 board) with SPI (SCLK, MOSI, MISO, CS) and RST, DIO0 and DIO4 pins wired to ESP32. Note: set -1 if DIO4 is not wired on your board.
 - Wires to connect the radio module to the board
 - USB cable to connect the board to your computer
 
