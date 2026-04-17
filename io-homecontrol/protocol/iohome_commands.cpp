@@ -200,7 +200,7 @@ namespace iohome
         const uint8_t challenge[HMAC_SIZE])
     {
         // Initialize frame for 2W mode
-        init_frame(frame, true, true, false, false);
+        init_frame(frame, true, false, false, false);
 
         // Set source and destination
         set_destination(frame, dest_node);
