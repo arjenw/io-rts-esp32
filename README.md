@@ -37,13 +37,14 @@ These features are currently available:
   - Static IPv4 support, including manual DNS server configuration
 - (S)NTP support for time synchronization
 - Front-end:
-  - Command line permits to:
+  - Command line features:
     - Control IO devices: discover and pair, add, open, close, stop, set to favorite position, set to specific position (0-100%), change name inside device, link a remote to a device, delete a device, delete a remote
     - Reboot ESP32
     - Change Wifi configuration without reflashing firmware (configuration applied after reboot)
     - Change DHCP/IPv4 configuration without reflashing firmware (configuration applied after reboot)
     - Change MQTT configuration without reflashing firmware (configuration applied after reboot)
     - Change IO-Homecontrol configuration without reflashing firmware (configuration applied after reboot)
+    - Note: command line features are password protected by default, change default password in project configuration before bulding firmware.
   - MQTT support:
     - If IO logging and MQTT are both enabled, IO layer messages are sent to MQTT_TOPIC_PREFIX/log
     - Discovery message is published and compatible with Home Assistant, permitting to automatically add devices to it without extra configuration (only in active mode).

@@ -28,7 +28,7 @@ extern "C" void app_main(void)
     IoRts::IoRtsManager ioRtsManager = IoRts::IoRtsManager();
 
     // Initialize commands line tools
-    init_cmdline_tools(&ioRtsManager);
+    init_cmdline(&ioRtsManager);
 
     while (true)
         vTaskDelay(pdMS_TO_TICKS(60000));

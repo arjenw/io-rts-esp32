@@ -7,8 +7,12 @@ extern "C"
 {
 #endif
 
+    /// @brief Initialize command line
+    /// @param io_rts_manager Pointer to IoRtsManager object
+    void init_cmdline(IoRts::IoRtsManager *io_rts_manager);
+
     /// @brief Initialize command line tools
-    void init_cmdline_tools(IoRts::IoRtsManager *io_rts_manager);
+    void init_cmdline_tools();
 
     /// @brief Register misc. command line tools (like reboot)
     void register_misc_cmdline_tools();
@@ -22,6 +26,9 @@ extern "C"
     /// @brief Register command line tools
     /// @param io_rts_manager Pointer to IoRtsManager object
     void register_io_cmdline_tools(IoRts::IoRtsManager *io_rts_manager);
+
+    /// @brief Initialize hardware console (driver, ...)
+    void init_console();
 
 #ifdef __cplusplus
 }
