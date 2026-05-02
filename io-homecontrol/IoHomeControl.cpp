@@ -1582,7 +1582,7 @@ namespace iohome
               deviceIt->second.position = UNKNOWN_POSITION;
           }
         }
-        if (deviceIt->second.is_stopped && !hasReachedTargetPosition(tmpTargetPos, tmpCurrentPos))
+        if (deviceIt->second.is_stopped && !hasReachedTargetPosition(deviceIt->second.target, deviceIt->second.position))
           deviceIt->second.is_stopped = false; // some devices set 'stopped' flag when moving, force it to update status!
 
         // Extract tilt value from 16-byte tilt-extended response only (from 03200100 query)
