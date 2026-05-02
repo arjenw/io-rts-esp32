@@ -64,7 +64,7 @@ namespace iohome
   constexpr uint8_t CTRL1_ROUTED = 0x40;           // bit 6
   constexpr uint8_t CTRL1_LOW_POWER = 0x20;        // bit 5
   constexpr uint8_t CTRL1_ACK = 0x10;              // bit 4
-  constexpr uint8_t CTRL1_PROTOCOL_VERSION = 0x0F; // bits 3-0
+  constexpr uint8_t CTRL1_PROTOCOL_VERSION = 0x03; // bits 1-0
 
   // ============================================================================
   // Cryptography Constants

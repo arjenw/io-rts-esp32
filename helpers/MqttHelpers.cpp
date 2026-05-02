@@ -40,7 +40,7 @@ static const std::string MQTT_CLIENT_REM_REMOTE_ID = "RemoveIoRemote";       // 
 static const std::string MQTT_CLIENT_SET_DEVICE_NAME_ID = "SetIoDeviceName"; // unique id and action for "SetDeviceName" component
 
 static const std::string MQTT_CLIENT_PREFIX_IO = "io_";          // unique_id prefix for IO devices
-static const std::string MQTT_CLIENT_SUFFIX_FAV_IO = "_fav";    // unique_id suffix for IO devices "favorite" button
+static const std::string MQTT_CLIENT_SUFFIX_FAV_IO = "_fav";     // unique_id suffix for IO devices "favorite" button
 static const std::string MQTT_CLIENT_SUFFIX_IDENTIFY = "_ident"; // unique_id suffix for IO devices "identify" button
 
 static const std::string MQTT_CLIENT_BIRTH_WILL_TOPIC = "/status"; // birth and last will topic
@@ -407,7 +407,7 @@ namespace Helpers
     }
 
     MqttHelpers::MqttHelpers(IoRts::IoRtsManager *manager)
-        : mIoRtsManager(manager), mStarted(false)
+        : mIoRtsManager(manager), mStarted(false), mMqttClientHandle(nullptr)
     {
         mIsIoHomePassive = IoHomeConfig::isPassiveModeEnabled();
         mTopicPrefix = MqttConfig::GetTopicPrefix();
@@ -452,6 +452,7 @@ namespace Helpers
         {
             ESP_LOGE(TAG, "Failed to register MQTT event handler! (%d)", err);
             esp_mqtt_client_destroy(mMqttClientHandle);
+            mMqttClientHandle = nullptr;
             return ESP_FAIL;
         }
         // Start
@@ -460,6 +461,7 @@ namespace Helpers
         {
             ESP_LOGE(TAG, "Failed to start MQTT client! (%d)", err);
             esp_mqtt_client_destroy(mMqttClientHandle);
+            mMqttClientHandle = nullptr;
             return ESP_FAIL;
         }
         mStarted = true;
@@ -929,7 +931,7 @@ namespace Helpers
                     case DeviceType::HEAT_PUMP:
                     case DeviceType::INTRUSION_ALARM:
                     default:
-                        ESP_LOGE(TAG, "Failed to add device to MQTT discovery: type not managed! (%d)", it->second.info.device_type);
+                        ESP_LOGE(TAG, "Failed to add device to MQTT discovery: type not managed! (%d)", static_cast<int>(it->second.info.device_type));
                         cJSON_Delete(discovery);
                         continue; // skip this device entirely
                     }
@@ -954,11 +956,11 @@ namespace Helpers
                         error = error || (cJSON_AddStringToObject(ident, "p", "button") == NULL);                        // platform
                         error = error || (cJSON_AddStringToObject(ident, "unique_id", device_id_ident.c_str()) == NULL); // unique_id
                         std::string identName = it->second.info.name + std::string(" Identify");
-                        error = error || (cJSON_AddStringToObject(ident, "name", identName.c_str()) == NULL);                   // name
-                        error = error || (cJSON_AddStringToObject(ident, "command_topic", device_cmd_topic.c_str()) == NULL);    // command_topic — uses /set
-                        error = error || (cJSON_AddStringToObject(ident, "payload_press", "IDENTIFY") == NULL);                 // payload_press
-                        error = error || (cJSON_AddStringToObject(ident, "device_class", "identify") == NULL);                  // device_class
-                        error = error || (cJSON_AddStringToObject(ident, "entity_category", "diagnostic") == NULL);             // entity_category
+                        error = error || (cJSON_AddStringToObject(ident, "name", identName.c_str()) == NULL);                 // name
+                        error = error || (cJSON_AddStringToObject(ident, "command_topic", device_cmd_topic.c_str()) == NULL); // command_topic — uses /set
+                        error = error || (cJSON_AddStringToObject(ident, "payload_press", "IDENTIFY") == NULL);               // payload_press
+                        error = error || (cJSON_AddStringToObject(ident, "device_class", "identify") == NULL);                // device_class
+                        error = error || (cJSON_AddStringToObject(ident, "entity_category", "diagnostic") == NULL);           // entity_category
                     }
                 }
             }
@@ -1139,6 +1141,12 @@ namespace Helpers
     }
     void MqttHelpers::SendLog(const std::string &log)
     {
+        // Drop logs that arrive before the MQTT client is actually started: esp_mqtt_client_publish
+        // dereferences an internal mutex that is only created by esp_mqtt_client_init (called from
+        // StartMqttClient). The IoHomeControl log task can fire before StartMqttClient has run and
+        // would otherwise crash the system on a null pointer.
+        if (!mStarted || mMqttClientHandle == nullptr)
+            return;
         std::string topic = mTopicPrefix + MQTT_CLIENT_LOG_TOPIC;
         esp_mqtt_client_publish(mMqttClientHandle, topic.c_str(), log.c_str(), 0, 0, 0);
     }
