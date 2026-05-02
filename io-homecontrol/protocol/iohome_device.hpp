@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <string>
 #include "iohome_constants.h"
 #include "iohome_frame.hpp"
 
@@ -38,17 +39,8 @@ namespace iohome
     /// @brief Check if a device type supports tilt control
     /// @param type Device type
     /// @return true if the device type supports tilt
-    inline bool deviceTypeSupportsTilt(DeviceType type)
-    {
-        switch (type)
-        {
-        case DeviceType::VENETIAN_BLIND:
-        case DeviceType::EXTERNAL_VENETIAN_BLIND:
-        case DeviceType::LOUVRE_BLIND:
-        case DeviceType::BLIND:
-            return true;
-        default:
-            return false;
-        }
-    }
+    bool deviceTypeSupportsTilt(DeviceType type);
+
+    std::string IoDeviceManufacturer(Manufacturer mf);
+    
 } // namespace iohome

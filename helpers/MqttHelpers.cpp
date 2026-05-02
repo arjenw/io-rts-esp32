@@ -755,11 +755,11 @@ namespace Helpers
                 error = true;
             else
             {
-                error = error || (cJSON_AddStringToObject(dev, "ids", device_id.c_str()) == NULL);       // identifiers
-                error = error || (cJSON_AddStringToObject(dev, "name", it->second.info.name) == NULL);   // name
-                error = error || (cJSON_AddStringToObject(dev, "mf", "Somfy") == NULL);                  // manufacturer
-                error = error || (cJSON_AddStringToObject(dev, "sn", it->first.c_str()) == NULL);        // serial_number (node address)
-                error = error || (cJSON_AddStringToObject(dev, "via_device", clientId.c_str()) == NULL); // via_device — links to controller
+                error = error || (cJSON_AddStringToObject(dev, "ids", device_id.c_str()) == NULL);                                         // identifiers
+                error = error || (cJSON_AddStringToObject(dev, "name", it->second.info.name) == NULL);                                     // name
+                error = error || (cJSON_AddStringToObject(dev, "mf", IoDeviceManufacturer(it->second.info.manufacturer).c_str()) == NULL); // manufacturer
+                error = error || (cJSON_AddStringToObject(dev, "sn", it->first.c_str()) == NULL);                                          // serial_number (node address)
+                error = error || (cJSON_AddStringToObject(dev, "via_device", clientId.c_str()) == NULL);                                   // via_device — links to controller
             }
 
             // "o" (origin) section
@@ -836,12 +836,12 @@ namespace Helpers
                         // add tilt topics if device supports tilt
                         if (iohome::deviceTypeSupportsTilt(it->second.info.device_type))
                         {
-                            error = error || (cJSON_AddStringToObject(cmp, "tilt_status_topic", device_tilt_topic.c_str()) == NULL);       // tilt_status_topic
-                            error = error || (cJSON_AddStringToObject(cmp, "tilt_command_topic", device_cmd_tilt_topic.c_str()) == NULL);  // tilt_command_topic
+                            error = error || (cJSON_AddStringToObject(cmp, "tilt_status_topic", device_tilt_topic.c_str()) == NULL);      // tilt_status_topic
+                            error = error || (cJSON_AddStringToObject(cmp, "tilt_command_topic", device_cmd_tilt_topic.c_str()) == NULL); // tilt_command_topic
                             error = error || (cJSON_AddNumberToObject(cmp, "tilt_closed_value", 0) == NULL);                              // tilt_closed_value
                             error = error || (cJSON_AddNumberToObject(cmp, "tilt_opened_value", 100) == NULL);                            // tilt_opened_value
-                            error = error || (cJSON_AddNumberToObject(cmp, "tilt_min", 0) == NULL);                                      // tilt_min
-                            error = error || (cJSON_AddNumberToObject(cmp, "tilt_max", 100) == NULL);                                    // tilt_max
+                            error = error || (cJSON_AddNumberToObject(cmp, "tilt_min", 0) == NULL);                                       // tilt_min
+                            error = error || (cJSON_AddNumberToObject(cmp, "tilt_max", 100) == NULL);                                     // tilt_max
                         }
                         // add device_class https://www.home-assistant.io/integrations/cover/#device_class
                         std::string type = "shutter";
@@ -929,9 +929,9 @@ namespace Helpers
                         continue; // skip this device entirely
                     }
                     // Common fields for all supported device types
-                    error = error || (cJSON_AddStringToObject(cmp, "p", device_platform.c_str()) == NULL);             // platform
-                    error = error || (cJSON_AddStringToObject(cmp, "unique_id", device_id.c_str()) == NULL);           // unique_id
-                    error = error || (cJSON_AddStringToObject(cmp, "name", it->second.info.name) == NULL);             // name
+                    error = error || (cJSON_AddStringToObject(cmp, "p", device_platform.c_str()) == NULL);              // platform
+                    error = error || (cJSON_AddStringToObject(cmp, "unique_id", device_id.c_str()) == NULL);            // unique_id
+                    error = error || (cJSON_AddStringToObject(cmp, "name", it->second.info.name) == NULL);              // name
                     error = error || (cJSON_AddStringToObject(cmp, "command_topic", device_cmd_topic.c_str()) == NULL); // command_topic
                     error = error || (cJSON_AddStringToObject(cmp, "state_topic", device_state_topic.c_str()) == NULL); // state_topic
                 }
