@@ -56,4 +56,61 @@ namespace iohome
             return "unknown";
         }
     }
+    std::string IoDeviceType(DeviceType type)
+    {
+        switch (type)
+        {
+        case DeviceType::VENETIAN_BLIND:
+            return "Venetian blind";
+        case DeviceType::ROLLER_SHUTTER:
+            return "Roller shutter";
+        case DeviceType::AWNING:
+            return "Awning";
+        case DeviceType::WINDOW_OPENER:
+            return "Window opener";
+        case DeviceType::GARAGE_OPENER:
+            return "Garage opener";
+        case DeviceType::LIGHT:
+            return "Light";
+        case DeviceType::GATE_OPENER:
+            return "Gate opener";
+        case DeviceType::ROLLING_DOOR_OPENER:
+            return "Rolling door opener";
+        case DeviceType::LOCK:
+            return "Lock";
+        case DeviceType::BLIND:
+            return "Blind";
+        case DeviceType::UNKNOWN_0B:
+            return "Unknown 0xOB";
+        case DeviceType::BEACON:
+            return "Beacon";
+        case DeviceType::DUAL_SHUTTER:
+            return "Dual shutter";
+        case DeviceType::HEATING_TEMPERATURE_INTERFACE:
+            return "Heating temperature interface";
+        case DeviceType::ON_OFF_SWITCH:
+            return "On/off switch";
+        case DeviceType::HORIZONTAL_AWNING:
+            return "Horizontal Awning";
+        case DeviceType::EXTERNAL_VENETIAN_BLIND:
+            return "External venetian blind";
+        case DeviceType::LOUVRE_BLIND:
+            return "Louvre blind";
+        case DeviceType::CURTAIN_TRACK:
+            return "Curtain track";
+        case DeviceType::VENTILATION_POINT:
+            return "Ventilation point";
+        case DeviceType::EXTERIOR_HEATING:
+            return "Exterior heating";
+        case DeviceType::HEAT_PUMP:
+            return "Heat pump";
+        case DeviceType::INTRUSION_ALARM:
+            return "Intrusion alarm";
+        case DeviceType::SWINGING_SHUTTER:
+            return "Swinging shutter";
+        case DeviceType::UNKNOWN:
+        default:
+            return "unknown";
+        }
+    }
 }

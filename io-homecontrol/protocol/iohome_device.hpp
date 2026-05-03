@@ -47,6 +47,14 @@ namespace iohome
     /// @return true if both positions are valid and within tolerance
     bool hasReachedTargetPosition(uint16_t targetPos, uint16_t currentPos);
 
+    /// @brief Gets manufacturer name (string) from enum
+    /// @param mf manufacturer value from enum
+    /// @return manufacturer name
     std::string IoDeviceManufacturer(Manufacturer mf);
+
+    /// @brief Gets device type (string) from enum
+    /// @param type device type value from enum
+    /// @return device type
+    std::string IoDeviceType(DeviceType type);
     
 } // namespace iohome

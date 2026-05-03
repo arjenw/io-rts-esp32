@@ -765,6 +765,7 @@ namespace Helpers
                 error = error || (cJSON_AddStringToObject(dev, "ids", device_id.c_str()) == NULL);                                         // identifiers
                 error = error || (cJSON_AddStringToObject(dev, "name", it->second.info.name) == NULL);                                     // name
                 error = error || (cJSON_AddStringToObject(dev, "mf", IoDeviceManufacturer(it->second.info.manufacturer).c_str()) == NULL); // manufacturer
+                error = error || (cJSON_AddStringToObject(dev, "mdl", IoDeviceType(it->second.info.device_type).c_str()) == NULL);         // model
                 error = error || (cJSON_AddStringToObject(dev, "sn", it->first.c_str()) == NULL);                                          // serial_number (node address)
                 error = error || (cJSON_AddStringToObject(dev, "via_device", clientId.c_str()) == NULL);                                   // via_device — links to controller
             }
