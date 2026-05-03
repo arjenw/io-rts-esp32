@@ -18,7 +18,7 @@ _I don't give any support concerning the IO-Homecontrol 1W part. I give limited 
 ### Documentation
 - All IO-Homecontrol details require you to carefully read the work of [Velocet/iown-homecontrol](https://github.com/Velocet/iown-homecontrol) to understand this protocol.
 - The documentation provides useful information about this project, especially:
-  - On IO-Homecontrol: the list of supported devices, the current knowledge about the protocol and commands (in addition to what is already documented in [Velocet/iown-homecontrol](https://github.com/Velocet/iown-homecontrol))
+  - On IO-Homecontrol: the [list of supported devices](doc/supported_devices.md), the current knowledge about the protocol and commands (in addition to what is already documented in [Velocet/iown-homecontrol](https://github.com/Velocet/iown-homecontrol))
   - On this project development (structure of the project, how the source code is organized if you want to contribute or fork...)
 
 ### Current status and coming features
@@ -28,6 +28,7 @@ These features are currently available:
   - Add device (if already paired) / Discover and pair device (if never paired)
   - Change device name
   - Open / Close / Stop / Set to favorite position / Set to specific position (0-100%) for devices of type "blind" / "screen" (devices based on movement and position)
+  - Change tilt position (for devices with tilt support)
   - On / Off for devices of type "light" or "switch"
   - Get status feedback (currently moving, current position...), that's the main advantage of the 2W implementation!
 - Connectivity:
@@ -37,7 +38,7 @@ These features are currently available:
   - Static IPv4 support, including manual DNS server configuration
 - (S)NTP support for time synchronization
 - Front-end:
-  - Command line features:
+  - Command line features: see [dedicated page](doc/command_line.md) for more information
     - Control IO devices: discover and pair, add, open, close, stop, set to favorite position, set to specific position (0-100%), change name inside device, link a remote to a device, delete a device, delete a remote, invert OPEN/CLOSE positions
     - Reboot ESP32
     - Change Wifi configuration without reflashing firmware (configuration applied after reboot)
@@ -45,7 +46,7 @@ These features are currently available:
     - Change MQTT configuration without reflashing firmware (configuration applied after reboot)
     - Change IO-Homecontrol configuration without reflashing firmware (configuration applied after reboot)
     - Note: command line features are password protected by default, change default password in project configuration before building firmware.
-  - MQTT support:
+  - MQTT support: see [dedicated page](doc/mqtt.md) for more information
     - If IO logging and MQTT are both enabled, IO layer messages are sent to MQTT_TOPIC_PREFIX/log
     - Discovery message is published and compatible with Home Assistant, permitting to automatically add devices to it without extra configuration (only in active mode).
     - Currently all devices based on position (shutter, blind, awning, window opener, garage opener, gate opener), ON/OFF switch, ON/OFF light and locks are expected to work.
@@ -66,12 +67,11 @@ These features are currently available:
 - Devices storage to flash (thanks [@kfroeschl](https://github.com/kfroeschl))
 
 These features should be available before end of 2026 depending on my available time:
-- ESP32 security features (expected April-June 2026 :calendar:, optional, enable if you want): flash encryption, secure boot, firmware signature
-- OTA sofware update (expected April-June 2026 :calendar:): update over Wifi/Ethernet, without flashing from USB, with rollback in case of failure
-- RTS protocol for legacy devices, based on CC1101 module (expected August-October 2026 :calendar:)
+- ESP32 security features and OTA sofware update (expected October-November 2026 :calendar:, optional, enable if you want): flash encryption, secure boot, firmware signature, update over Wifi/Ethernet with rollback in case of failure
+- RTS protocol for legacy devices, based on CC1101 module (expected November-December 2026 :calendar:)
 
 These features could be added, if useful:
-- Support for new devices: I don't have these devices, my devices work well, so it will depend on you!
+- Support for new devices: I don't have these devices, my devices work well, so it will depend on you! See [supported devices](doc/supported_devices.md)
 - Web: configuration, devices control and status
 
 ### Hardware requirements
@@ -89,12 +89,7 @@ The development environment is based on:
 
 ### Supported devices
 
-The project has been fully tested on these IO devices:
-- Somfy RS100 SOLAR IO roller shutter
-- Velux solar shutter (SSL)
-- Somfy Dexxo Smart io 800 (garage door with on/off light and on/off switch)
-
-The project should work with most of the IO devices of type shutter, light and switch. Please provide feedback for other models working (or not) on your side.
+See [supported devices](doc/supported_devices.md) for more information about currently supported devices and how to support new devices.
 
 ### Starting guide
 
@@ -142,6 +137,6 @@ Notes:
 
 ### How to contribute
 
-You can mainly contribute to this project by reporting any issue and by checking if your devices are supported and open a discussion to describe what is working or not. I will update the list of supported devices based on your feedbacks! See the documentation for the list of known supported devices and how to provide useful information about (not yet) supported devices.
+You can mainly contribute to this project by reporting any issue and by checking if your devices are supported and open a discussion to describe what is working or not. I will update the list of supported devices based on your feedbacks! See [supported devices](doc/supported_devices.md) for the list of known supported devices and how to provide useful information about (not yet) supported devices.
 
 If you have development skills you can also propose source code modification to fix issues or add new supported devices.
