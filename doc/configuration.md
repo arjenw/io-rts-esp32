@@ -61,6 +61,7 @@ This section permits to configure:
 - GPIO connected to radio module and used for:
   - RST
   - DIO0
+  - DIO2 (optional, set value to -1 if not connected on your board)
   - DIO4 (optional, set value to -1 if not connected on your board)
 
 #### MQTT configuration parameters

@@ -77,7 +77,7 @@ These features could be added, if useful:
 ### Hardware requirements
 In order to execute this project, you will need:
 - ESP32-S3 board
-- SX1276 radio module (it can be included on the ESP32 board) with SPI (SCLK, MOSI, MISO, CS) and RST, DIO0 and DIO4 pins wired to ESP32. Note: set -1 if DIO4 is not wired on your board.
+- SX1276 radio module (it can be included on the ESP32 board) with SPI (SCLK, MOSI, MISO, CS) and RST, DIO0, DIO2 and DIO4 pins wired to ESP32. Note: set -1 if DIO2 or DIO4 is not wired on your board.
 - Wires to connect the radio module to the board
 - USB cable to connect the board to your computer
 

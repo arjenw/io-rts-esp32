@@ -16,8 +16,9 @@ namespace RadioLinks
         /// @param cs SPI - GPIO connected to CS pin
         /// @param rst GPIO connected to RST pin
         /// @param dio0 GPIO connected to DIO0 pin
-        /// @param dio4 GPIO connected to DIO4 pin
-        explicit RadioSX1276(spi_host_device_t spiHost, int cs, int rst, int dio0, int dio4);
+        /// @param dio2 GPIO connected to DIO2 pin (optional, set -1 if not used)
+        /// @param dio4 GPIO connected to DIO4 pin (optional, set -1 if not used)
+        explicit RadioSX1276(spi_host_device_t spiHost, int cs, int rst, int dio0, int dio2, int dio4);
 
         /// @brief Dump all SX1276 registers to console
         void DumpRegisters();
@@ -43,22 +44,25 @@ namespace RadioLinks
         RADIO_ERRCODE StopReceive() override;
         RADIO_ERRCODE Send(uint8_t len, uint8_t *buffer, uint16_t preambleLen, uint32_t frequency) override;
         bool isPreambleDetected() override;
+        bool isSyncWordDetected() override;
 
     private:
         static constexpr const char *TAG = "RadioSX1276"; // tag to use when logging to console
 
         spi_host_device_t mSpiHost = SPI_HOST_MAX;
-        int mSpiCS;   // SPI - CS pin
+        int mSpiCS; // SPI - CS pin
         spi_device_handle_t mSpiHandle = nullptr;
 
         int mIoRST;  // GPIO connected to RST pin
         int mIoDIO0; // GPIO connected to DIO0 pin
+        int mIoDIO2; // GPIO connected to DIO2 pin
         int mIoDIO4; // GPIO connected to DIO4 pin
 
-        void (*mCallback)(uint8_t len, uint8_t buffer[], uint32_t frequency, float rssi, int64_t time_since_preamble) = nullptr;
+        void (*mCallback)(uint8_t len, uint8_t buffer[], uint32_t frequency, float rssi, int64_t preamble_time) = nullptr;
 
         bool mIsReceiveMode = false;       // is currently in receivins state (set to true by calling StartReceive())
         int64_t mLastPreambleDetectedTime; // in us, use esp_timer_get_time() to fill
+        int64_t mLastSyncWordDetectedTime; // in us, use esp_timer_get_time() to fill
         uint32_t mCurrentFrequency;        // current frequency in use
 
         /// @brief Initialize SPI

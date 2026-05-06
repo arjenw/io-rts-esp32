@@ -78,7 +78,7 @@ namespace iohome
   struct RadioRxFrameQueueItem
   {
     int64_t timestamp;             // Timestamp of the frame when added to the queue, in us (use esp_timer_get_time() to fill)
-    int64_t time_since_preamble;   // Time between preamble is detected and frame is received, in us (only available if DIO4 is wired)
+    int64_t preamble_time;         // Time between preamble is detected and frame is received, in us (only available if DIO4 is wired)
     uint8_t frame[FRAME_MAX_SIZE]; // RAW frame
     uint8_t frame_len;             // Actual length of frame
     uint32_t frequency;            // Frequency used to receive packet
@@ -199,7 +199,8 @@ namespace iohome
   /// @param buffer Frame data received by radio layer
   /// @param frequency Frequency used to receive the frame
   /// @param rssi RSSI of the received data
-  static void received_frame_handler(uint8_t len, uint8_t buffer[], uint32_t frequency, float rssi, int64_t time_since_preamble)
+  /// @param preamble_time time between preamble is detected and sync word is detected
+  static void received_frame_handler(uint8_t len, uint8_t buffer[], uint32_t frequency, float rssi, int64_t preamble_time)
   {
     if (len > FRAME_MAX_SIZE)
     {
@@ -208,7 +209,7 @@ namespace iohome
     }
     RadioRxFrameQueueItem item;
     item.timestamp = esp_timer_get_time();
-    item.time_since_preamble = time_since_preamble;
+    item.preamble_time = preamble_time;
     item.frame_len = len;
     item.frequency = frequency;
     item.rssi = rssi;
@@ -261,7 +262,7 @@ namespace iohome
         {
           rxFrame.frequency = item.frequency;
           rxFrame.rssi = item.rssi;
-          IO_LOGI("Received at {} ({}us since preamble) - RSSI {:.1f}", item.timestamp, item.time_since_preamble, item.rssi);
+          IO_LOGI("Received at {} ({}us preamble) - RSSI {:.1f}", item.timestamp, item.preamble_time, item.rssi);
           IO_LOGI("Rcvd ({:.2f}) command {:02X} from {} to {} CTRL0 {:02X} CTRL1 {:02X} - {} bytes: {}",
                   rxFrame.frequency / 1000000.0, rxFrame.frame.command_id, buffToHexString(NODE_ID_SIZE, rxFrame.frame.src_node), buffToHexString(NODE_ID_SIZE, rxFrame.frame.dest_node),
                   rxFrame.frame.ctrl_byte_0, rxFrame.frame.ctrl_byte_1, rxFrame.frame.data_len, buffToHexString(rxFrame.frame.data_len, rxFrame.frame.data));
@@ -279,13 +280,14 @@ namespace iohome
           }
         }
       }
-      else if (ioHome->isReceiving()                    // still receiving enabled
-               && ioHome->mRadio->isPreambleDetected()) // Preamble detected
+      else if (ioHome->isReceiving()                                                              // still receiving enabled
+               && (ioHome->mRadio->isSyncWordDetected() || ioHome->mRadio->isPreambleDetected())) // Preamble or sync word detected
       {
         waitTime = CHANNEL_PREAMBLE_TIME_US * portTICK_PERIOD_MS / 1000; // We will see soon if frame arrives...
         // IO_LOGI("process_radio_task: Preamble detected");
       }
       else if (ioHome->isReceiving()                     // still receiving enabled
+               && !ioHome->mRadio->isSyncWordDetected()  // No sync word detected
                && !ioHome->mRadio->isPreambleDetected()) // No preamble detected
       {
         TxFrameQueueItem item;
@@ -1845,18 +1847,14 @@ namespace iohome
       UBaseType_t currentPriority = uxTaskPriorityGet(NULL);
       vTaskPrioritySet(NULL, IO_FRAME_PROCESSING_TASK);
 
-      if (create_getbattery_request(request, mOwnNodeId, tmpDeviceId, 0x06)
-          && SendAndReceive(request, response, FREQUENCY_CHANNEL_2)
-          && response.command_id == CMD_PRIVATE_RESPONSE && response.data_len >= 4)
+      if (create_getbattery_request(request, mOwnNodeId, tmpDeviceId, 0x06) && SendAndReceive(request, response, FREQUENCY_CHANNEL_2) && response.command_id == CMD_PRIVATE_RESPONSE && response.data_len >= 4)
       {
         is_battery_powered = (response.data[1] == 0x60);
         battery_status = (uint16_t)(response.data[2] << 8) | response.data[3];
         status_ok = true;
       }
 
-      if (create_getbattery_request(request, mOwnNodeId, tmpDeviceId, 0x09)
-          && SendAndReceive(request, response, FREQUENCY_CHANNEL_2)
-          && response.command_id == CMD_PRIVATE_RESPONSE && response.data_len >= 4)
+      if (create_getbattery_request(request, mOwnNodeId, tmpDeviceId, 0x09) && SendAndReceive(request, response, FREQUENCY_CHANNEL_2) && response.command_id == CMD_PRIVATE_RESPONSE && response.data_len >= 4)
       {
         battery_state = (uint16_t)(response.data[2] << 8) | response.data[3];
         state_ok = true;

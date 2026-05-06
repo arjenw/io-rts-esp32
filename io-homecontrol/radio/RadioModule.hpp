@@ -39,7 +39,7 @@ namespace RadioLinks
 
         /// @brief Register callback that will be called when a frame is received on radio link
         /// @param func_ptr Callback that will receive buffer length, buffer, frequency, rssi, time since preambule values
-        virtual void RegisterReceiveCallback(void (*func_ptr)(uint8_t len, uint8_t buffer[], uint32_t frequency, float rssi, int64_t time_since_preamble)) = 0;
+        virtual void RegisterReceiveCallback(void (*func_ptr)(uint8_t len, uint8_t buffer[], uint32_t frequency, float rssi, int64_t preamble_time)) = 0;
 
         // Configuration
 
@@ -105,6 +105,10 @@ namespace RadioLinks
         /// @brief Call to know if a preamble has been detected since last call to this method
         /// @return true if a preamble has been detected since last call to this method, false otherwise.
         virtual bool isPreambleDetected() = 0;
+
+        /// @brief Call to know if a sync word has been detected since last call to this method
+        /// @return true if a sync word has been detected since last call to this method, false otherwise.
+        virtual bool isSyncWordDetected() = 0;
     };
 
 }

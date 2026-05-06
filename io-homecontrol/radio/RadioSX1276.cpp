@@ -66,8 +66,8 @@ namespace RadioLinks
         }
     }
 
-    RadioSX1276::RadioSX1276(spi_host_device_t spiHost, int cs, int rst, int dio0, int dio4)
-        : mSpiHost(spiHost), mSpiCS(cs), mIoRST(rst), mIoDIO0(dio0), mIoDIO4(dio4), mLastPreambleDetectedTime(0)
+    RadioSX1276::RadioSX1276(spi_host_device_t spiHost, int cs, int rst, int dio0, int dio2, int dio4)
+        : mSpiHost(spiHost), mSpiCS(cs), mIoRST(rst), mIoDIO0(dio0), mIoDIO2(dio2), mIoDIO4(dio4), mLastPreambleDetectedTime(0), mLastSyncWordDetectedTime(0)
     {
     }
 
@@ -100,10 +100,11 @@ namespace RadioLinks
                     xSemaphoreGive(sMutex);
                     if (mCallback != nullptr)
                     {
-                        int64_t timeSincePreamble = (mIoDIO4 == GPIO_NUM_NC) ? 0 : esp_timer_get_time() - mLastPreambleDetectedTime;
-                        mCallback(bufferLen, buffer, mCurrentFrequency, rssi, timeSincePreamble);
+                        int64_t preambleTime = (mIoDIO2 == GPIO_NUM_NC || mIoDIO4 == GPIO_NUM_NC) ? 0 : mLastSyncWordDetectedTime - mLastPreambleDetectedTime;
+                        mCallback(bufferLen, buffer, mCurrentFrequency, rssi, preambleTime);
                     }
                     isPreambleDetected(); // reset preamble flag to be sure it is not a flag from a previous frame
+                    isSyncWordDetected(); // reset sync word flag to be sure it is not a flag from a previous frame
                 }
                 else if (reg & RF_IRQFLAGS2_PACKETSENT)
                 {
@@ -120,6 +121,23 @@ namespace RadioLinks
                 }
                 else
                     xSemaphoreGive(sMutex);
+            }
+            else
+            {
+                ESP_LOGE(TAG, "ManageInterrupt - Busy");
+            }
+        }
+        else if (gpio == mIoDIO2)
+        {
+            // DIO2 = SyncAddress or FifoFull
+            if (xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
+            {
+                if (SpiReadByte(REG_IRQFLAGS1) & RF_IRQFLAGS1_SYNCADDRESSMATCH)
+                {
+                    // ESP_LOGI(TAG, "SyncAddress received!");
+                    mLastSyncWordDetectedTime = esp_timer_get_time();
+                }
+                xSemaphoreGive(sMutex);
             }
             else
             {
@@ -154,8 +172,12 @@ namespace RadioLinks
     void RadioSX1276::Init(bool ioMode)
     {
         ESP_LOGI(TAG, "Init...");
-        // initialize GPIO for DIO0/DIO4/MISO/RST...
+        // initialize GPIO for DIO0/DIO2/DIO4/MISO/RST...
         pinMode(mIoDIO0, GPIO_MODE_INPUT, GPIO_PULLUP_ENABLE, GPIO_PULLDOWN_DISABLE);
+        if (mIoDIO2 != GPIO_NUM_NC)
+        {
+            pinMode(mIoDIO2, GPIO_MODE_INPUT, GPIO_PULLUP_ENABLE, GPIO_PULLDOWN_DISABLE);
+        }
         if (mIoDIO4 != GPIO_NUM_NC)
         {
             pinMode(mIoDIO4, GPIO_MODE_INPUT, GPIO_PULLUP_ENABLE, GPIO_PULLDOWN_DISABLE);
@@ -190,17 +212,26 @@ namespace RadioLinks
 
         // hook isr handler for specific gpio pin
         gpio_isr_handler_add(static_cast<gpio_num_t>(mIoDIO0), gpio_isr_handler, (void *)mIoDIO0);
-        // hook isr handler for specific gpio pin
+        // hook isr handler for DIO2 if used
+        if (mIoDIO2 != GPIO_NUM_NC)
+        {
+            gpio_isr_handler_add(static_cast<gpio_num_t>(mIoDIO2), gpio_isr_handler, (void *)mIoDIO2);
+        }
+        // hook isr handler for DIO4 if used
         if (mIoDIO4 != GPIO_NUM_NC)
         {
             gpio_isr_handler_add(static_cast<gpio_num_t>(mIoDIO4), gpio_isr_handler, (void *)mIoDIO4);
         }
 
-        // change gpio interrupt type for DIO0/DIO4 pins
+        // change gpio interrupt type for DIO0/DIO2/DIO4 pins
         gpio_set_intr_type(static_cast<gpio_num_t>(mIoDIO0), GPIO_INTR_POSEDGE);
+        if (mIoDIO2 != GPIO_NUM_NC)
+        {
+            gpio_set_intr_type(static_cast<gpio_num_t>(mIoDIO2), GPIO_INTR_POSEDGE);
+        }
         if (mIoDIO4 != GPIO_NUM_NC)
         {
-            gpio_set_intr_type(static_cast<gpio_num_t>(mIoDIO4), GPIO_INTR_ANYEDGE);
+            gpio_set_intr_type(static_cast<gpio_num_t>(mIoDIO4), GPIO_INTR_POSEDGE);
         }
 
         ESP_LOGI(TAG, "Init... end");
@@ -507,6 +538,21 @@ namespace RadioLinks
         return false;
     }
 
+    bool RadioSX1276::isSyncWordDetected()
+    {
+        if (xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
+        {
+            uint8_t tmp = SpiReadByte(REG_IRQFLAGS1);
+            xSemaphoreGive(sMutex);
+            return (tmp & RF_IRQFLAGS1_SYNCADDRESSMATCH) != 0;
+        }
+        else
+        {
+            ESP_LOGE(TAG, "isSyncWordDetected - Busy");
+        }
+        return false;
+    }
+
     void RadioSX1276::spiBegin()
     {
         spi_device_interface_config_t dev = {};
@@ -801,13 +847,13 @@ namespace RadioLinks
         }
 
         // Mapping of pins DIO0 to DIO3
-        // DIO0: PayloadReady|PacketSent    DIO1: -    DIO2: TimeOut   | DIO3: -
+        // DIO0: PayloadReady|PacketSent    DIO1: -    DIO2: SyncAddress   | DIO3: -
         // Mapping of pins DIO4 and DIO5
         // DIO4: PreambleDetect  DIO5: ModeReady (not used)
         // DIO Mapping Data Packet Table 30 Page 69
         err = SpiWriteByte(
             REG_DIOMAPPING1,
-            RF_DIOMAPPING1_DIO0_00 | RF_DIOMAPPING1_DIO1_11 | RF_DIOMAPPING1_DIO2_10 | RF_DIOMAPPING1_DIO3_01);
+            RF_DIOMAPPING1_DIO0_00 | RF_DIOMAPPING1_DIO1_11 | RF_DIOMAPPING1_DIO2_11 | RF_DIOMAPPING1_DIO3_01);
         if (err != RADIO_ERR_NONE)
         {
             ESP_LOGE(TAG, "InitRegisters - SpiWriteByte error!");
@@ -830,8 +876,8 @@ namespace RadioLinks
 
         // ---------------- TX Register init section ----------------
 
-        // PA Ramp: No Shaping, Ramp up/down 12us
-        err = SpiWriteByte(REG_PARAMP, RF_PARAMP_MODULATIONSHAPING_00 | RF_PARAMP_0012_US);
+        // PA Ramp: Shaping == Gaussian filter BT = 1.0, Ramp up/down 15us
+        err = SpiWriteByte(REG_PARAMP, RF_PARAMP_MODULATIONSHAPING_01 | RF_PARAMP_0015_US);
         if (err != RADIO_ERR_NONE)
         {
             ESP_LOGE(TAG, "InitRegisters - SpiWriteByte error!");
