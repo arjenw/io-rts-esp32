@@ -3,12 +3,19 @@
 #include "esp_log.h"
 #include "esp_http_server.h"
 #include "esp_littlefs.h"
+#include "esp_random.h"
 #include "cJSON.h"
+#include "nvs.h"
+#include "esp_ota_ops.h"
 
 #include <stdio.h>
+#include <inttypes.h>
 #include <string.h>
 #include <stdarg.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <format>
 #include <list>
 
@@ -17,10 +24,12 @@
 #include "freertos/task.h"
 
 #include "DeviceStorage.hpp"
+#include "syslog.h"
 
 #include "IoRtsManager.hpp"
 #include "iohome_device.hpp"
 #include "MqttConfig.hpp"
+#include "SyslogConfig.hpp"
 
 #if CONFIG_WEB_ENABLED
 
@@ -75,7 +84,7 @@ static int web_log_vprintf(const char *fmt, va_list args)
         bool has_clients = false;
         for (int i = 0; i < WS_MAX_CLIENTS; i++)
             if (s_ws_fds[i] != -1) { has_clients = true; break; }
-        if (!has_clients) { va_end(copy); return ret; }
+        if (!has_clients && !syslog_is_active()) { va_end(copy); return ret; }
         char raw[LOG_LINE_MAX];
         vsnprintf(raw, sizeof(raw), fmt, copy);
         char line[LOG_LINE_MAX];
@@ -94,8 +103,10 @@ static void log_drain_task(void *)
 {
     char line[LOG_LINE_MAX];
     while (true) {
-        if (xQueueReceive(s_log_queue, line, portMAX_DELAY) == pdTRUE)
+        if (xQueueReceive(s_log_queue, line, portMAX_DELAY) == pdTRUE) {
             web_server_broadcast_log(line);
+            syslog_send(line);
+        }
     }
 }
 
@@ -568,6 +579,199 @@ static esp_err_t api_mqtt_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// ─── OTA key management ─────────────────────────────────────────────────────
+
+#define OTA_KEY_LEN 32
+static char s_ota_key[OTA_KEY_LEN + 1] = {};
+
+static void ota_key_init(void)
+{
+    if (CONFIG_OTA_API_KEY[0] != '\0') {
+        strncpy(s_ota_key, CONFIG_OTA_API_KEY, OTA_KEY_LEN);
+        s_ota_key[OTA_KEY_LEN] = '\0';
+        ESP_LOGI(TAG, "OTA key (menuconfig): set");
+        return;
+    }
+
+    nvs_handle_t h;
+    if (nvs_open("ota", NVS_READWRITE, &h) != ESP_OK) {
+        ESP_LOGE(TAG, "OTA: failed to open NVS");
+        return;
+    }
+    size_t len = sizeof(s_ota_key);
+    esp_err_t err = nvs_get_str(h, "api_key", s_ota_key, &len);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        uint8_t rnd[16];
+        for (int i = 0; i < 4; i++) {
+            uint32_t r = esp_random();
+            memcpy(rnd + i * 4, &r, 4);
+        }
+        for (int i = 0; i < 16; i++)
+            snprintf(s_ota_key + i * 2, 3, "%02x", rnd[i]);
+        s_ota_key[OTA_KEY_LEN] = '\0';
+        nvs_set_str(h, "api_key", s_ota_key);
+        nvs_commit(h);
+        ESP_LOGI(TAG, "OTA key (generated): %s", s_ota_key);
+    } else if (err == ESP_OK) {
+        ESP_LOGI(TAG, "OTA key (loaded): %s", s_ota_key);
+    } else {
+        ESP_LOGE(TAG, "OTA: NVS read error: %s", esp_err_to_name(err));
+    }
+    nvs_close(h);
+}
+
+static bool ota_check_key(httpd_req_t *req)
+{
+    char key_hdr[OTA_KEY_LEN + 1] = {};
+    esp_err_t err = httpd_req_get_hdr_value_str(req, "X-OTA-Key", key_hdr, sizeof(key_hdr));
+    bool ok = (err == ESP_OK) && (memcmp(key_hdr, s_ota_key, OTA_KEY_LEN) == 0);
+    if (!ok) {
+        int fd = httpd_req_to_sockfd(req);
+        struct sockaddr_in addr = {};
+        socklen_t addrlen = sizeof(addr);
+        getpeername(fd, (struct sockaddr *)&addr, &addrlen);
+        ESP_LOGW(TAG, "OTA: unauthorized attempt from %s", inet_ntoa(addr.sin_addr));
+    }
+    return ok;
+}
+
+// ─── GET /api/ota/key ───────────────────────────────────────────────────────
+
+static esp_err_t api_ota_key_get(httpd_req_t *req)
+{
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(obj, "key", s_ota_key);
+    send_json(req, obj);
+    return ESP_OK;
+}
+
+// ─── POST /api/ota ──────────────────────────────────────────────────────────
+
+static esp_err_t api_ota_post(httpd_req_t *req)
+{
+    if (!ota_check_key(req)) {
+        httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized");
+        return ESP_OK;
+    }
+
+    if (req->content_len == 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty payload");
+        return ESP_OK;
+    }
+
+    const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
+    if (!part) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No OTA partition");
+        return ESP_OK;
+    }
+    ESP_LOGI(TAG, "OTA: writing to partition %s", part->label);
+
+    esp_ota_handle_t ota_handle;
+    esp_err_t err = esp_ota_begin(part, OTA_WITH_SEQUENTIAL_WRITES, &ota_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_begin failed: %s", esp_err_to_name(err));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA begin failed");
+        return ESP_OK;
+    }
+
+    char buf[1024];
+    int total = 0;
+    int remaining = (int)req->content_len;
+    bool write_err = false;
+
+    while (remaining > 0) {
+        int to_recv = (remaining < (int)sizeof(buf)) ? remaining : (int)sizeof(buf);
+        int n = httpd_req_recv(req, buf, to_recv);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (n <= 0) {
+            ESP_LOGE(TAG, "OTA receive error at byte %d", total);
+            write_err = true;
+            break;
+        }
+        err = esp_ota_write(ota_handle, buf, n);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
+            write_err = true;
+            break;
+        }
+        total += n;
+        remaining -= n;
+    }
+
+    if (write_err) {
+        esp_ota_abort(ota_handle);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA write failed");
+        return ESP_OK;
+    }
+
+    err = esp_ota_end(ota_handle);
+    ESP_LOGI(TAG, "esp_ota_end: %s (%d bytes written)", esp_err_to_name(err), total);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA verify failed");
+        return ESP_OK;
+    }
+
+    err = esp_ota_set_boot_partition(part);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_set_boot_partition failed: %s", esp_err_to_name(err));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA set boot failed");
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "OTA: success, rebooting...");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"rebooting\"}");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return ESP_OK;
+}
+
+// ─── GET /api/syslog ────────────────────────────────────────────────────────
+
+static esp_err_t api_syslog_get(httpd_req_t *req)
+{
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddBoolToObject  (obj, "enabled",   Config::SyslogConfig::isEnabled());
+    cJSON_AddStringToObject(obj, "server",    Config::SyslogConfig::GetServer().c_str());
+    cJSON_AddNumberToObject(obj, "port",      Config::SyslogConfig::GetPort());
+    cJSON_AddNumberToObject(obj, "facility",  Config::SyslogConfig::GetFacility());
+    cJSON_AddNumberToObject(obj, "min_level", Config::SyslogConfig::GetMinLevel());
+    send_json(req, obj);
+    return ESP_OK;
+}
+
+// ─── POST /api/syslog ───────────────────────────────────────────────────────
+
+static esp_err_t api_syslog_post(httpd_req_t *req)
+{
+    char *body = nullptr;
+    if (read_body(req, &body) != ESP_OK) {
+        send_result(req, false, "Failed to read body");
+        return ESP_OK;
+    }
+
+    cJSON *json = cJSON_Parse(body);
+    free(body);
+    if (!json) { send_result(req, false, "Invalid JSON"); return ESP_OK; }
+
+    cJSON *jEnabled  = cJSON_GetObjectItem(json, "enabled");
+    cJSON *jServer   = cJSON_GetObjectItem(json, "server");
+    cJSON *jPort     = cJSON_GetObjectItem(json, "port");
+    cJSON *jFacility = cJSON_GetObjectItem(json, "facility");
+    cJSON *jMinLevel = cJSON_GetObjectItem(json, "min_level");
+
+    if (cJSON_IsBool(jEnabled))   Config::SyslogConfig::SetEnabled(cJSON_IsTrue(jEnabled));
+    if (cJSON_IsString(jServer))  Config::SyslogConfig::SetServer(jServer->valuestring);
+    if (cJSON_IsNumber(jPort))    Config::SyslogConfig::SetPort((uint16_t)jPort->valuedouble);
+    if (cJSON_IsNumber(jFacility)) Config::SyslogConfig::SetFacility((uint8_t)jFacility->valuedouble);
+    if (cJSON_IsNumber(jMinLevel)) Config::SyslogConfig::SetMinLevel((uint8_t)jMinLevel->valuedouble);
+
+    cJSON_Delete(json);
+    syslog_apply_config();
+    send_result(req, true, "Syslog config saved");
+    return ESP_OK;
+}
+
 // ─── Download / Upload helpers ──────────────────────────────────────────────
 
 static esp_err_t read_multipart_content(httpd_req_t *req, char **out)
@@ -813,6 +1017,82 @@ static esp_err_t api_upload_remotes(httpd_req_t *req)
     return ESP_OK;
 }
 
+// ─── GET /api/info ──────────────────────────────────────────────────────────
+
+static esp_err_t api_info_get(httpd_req_t *req)
+{
+    const esp_app_desc_t *desc = esp_app_get_description();
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(obj, "version",      desc->version);
+    cJSON_AddStringToObject(obj, "project",      desc->project_name);
+    cJSON_AddStringToObject(obj, "compile_date", desc->date);
+    cJSON_AddStringToObject(obj, "compile_time", desc->time);
+    cJSON_AddStringToObject(obj, "idf_ver",      desc->idf_ver);
+    send_json(req, obj);
+    return ESP_OK;
+}
+
+// ─── POST /api/upload/web ───────────────────────────────────────────────────
+
+static esp_err_t api_upload_web_post(httpd_req_t *req)
+{
+    if (!ota_check_key(req)) {
+        httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized");
+        return ESP_OK;
+    }
+
+    char query[256] = {};
+    char rel_path[128] = {};
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
+        httpd_query_key_value(query, "path", rel_path, sizeof(rel_path)) != ESP_OK ||
+        rel_path[0] != '/') {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing or invalid ?path=");
+        return ESP_OK;
+    }
+    if (strstr(rel_path, "..")) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
+        return ESP_OK;
+    }
+
+    char filepath[600];
+    if (snprintf(filepath, sizeof(filepath), "%s%s", WEB_BASE_PATH, rel_path) >= (int)sizeof(filepath)) {
+        httpd_resp_send_err(req, HTTPD_414_URI_TOO_LONG, "Path too long");
+        return ESP_OK;
+    }
+
+    FILE *f = fopen(filepath, "w");
+    if (!f) {
+        ESP_LOGE(TAG, "web upload: cannot open %s", filepath);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Cannot open file for writing");
+        return ESP_OK;
+    }
+
+    char buf[1024];
+    int remaining = (int)req->content_len;
+    int total = 0;
+    bool write_err = false;
+    while (remaining > 0) {
+        int to_recv = (remaining < (int)sizeof(buf)) ? remaining : (int)sizeof(buf);
+        int n = httpd_req_recv(req, buf, to_recv);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (n <= 0) { write_err = true; break; }
+        if (fwrite(buf, 1, n, f) != (size_t)n) { write_err = true; break; }
+        total += n;
+        remaining -= n;
+    }
+    fclose(f);
+
+    if (write_err) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Write failed");
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "web upload: %d bytes -> %s", total, filepath);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
+    return ESP_OK;
+}
+
 // ─── Server startup ─────────────────────────────────────────────────────────
 
 void web_server_start(void *ioRtsManager)
@@ -837,7 +1117,7 @@ void web_server_start(void *ioRtsManager)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
     config.task_priority = tskIDLE_PRIORITY + 3; // below radio (8), IO processing (6), status updates (4)
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 20;
     config.max_open_sockets = 13; // browser opens many parallel connections for static files + WS
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.enable_so_linger = false;
@@ -874,20 +1154,33 @@ void web_server_start(void *ioRtsManager)
     reg("/api/action",            HTTP_POST, api_action_post);
     reg("/api/mqtt",              HTTP_GET,  api_mqtt_get);
     reg("/api/mqtt",              HTTP_POST, api_mqtt_post);
+    reg("/api/syslog",            HTTP_GET,  api_syslog_get);
+    reg("/api/syslog",            HTTP_POST, api_syslog_post);
     reg("/api/download/devices",  HTTP_GET,  api_download_devices);
     reg("/api/download/remotes",  HTTP_GET,  api_download_remotes);
     reg("/api/upload/devices",    HTTP_POST, api_upload_devices);
     reg("/api/upload/remotes",    HTTP_POST, api_upload_remotes);
+    reg("/api/ota",               HTTP_POST, api_ota_post);
+    reg("/api/ota/key",           HTTP_GET,  api_ota_key_get);
+    reg("/api/info",              HTTP_GET,  api_info_get);
+    reg("/api/upload/web*",       HTTP_POST, api_upload_web_post);
 
     // Wildcard catch-all for static files
     reg("/*", HTTP_GET, static_file_handler);
 
     // Start log forwarding to WebSocket clients
     s_log_queue = xQueueCreate(LOG_QUEUE_DEPTH, LOG_LINE_MAX);
-    xTaskCreate(log_drain_task, "log_drain", 2048, nullptr, 1, nullptr);
+    xTaskCreate(log_drain_task, "log_drain", 4096, nullptr, 1, nullptr);
     s_orig_vprintf = esp_log_set_vprintf(web_log_vprintf);
 
+    syslog_init(CONFIG_IP_LAYER_HOSTNAME);
+    ota_key_init();
+
     ESP_LOGI(TAG, "HTTP server started");
+
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    ESP_LOGI(TAG, "Running partition: %s (offset 0x%08" PRIx32 ")", running->label, running->address);
+    esp_ota_mark_app_valid_cancel_rollback();
 }
 
 #endif // CONFIG_WEB_ENABLED
