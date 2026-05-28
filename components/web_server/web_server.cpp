@@ -228,6 +228,22 @@ void web_server_broadcast_position(const char *device_id, int position, bool is_
         if (s_ws_fds[i] != -1) ws_send_str(s_ws_fds[i], buf);
 }
 
+void web_server_broadcast_device_event(const char *device_id, const char *event_type)
+{
+    if (!s_server) return;
+    char buf[128];
+    snprintf(buf, sizeof(buf), "{\"type\":\"%s\",\"id\":\"%s\"}", event_type, device_id);
+    for (int i = 0; i < WS_MAX_CLIENTS; i++)
+        if (s_ws_fds[i] != -1) ws_send_str(s_ws_fds[i], buf);
+}
+
+void web_server_broadcast_message(const char *json_str)
+{
+    if (!s_server) return;
+    for (int i = 0; i < WS_MAX_CLIENTS; i++)
+        if (s_ws_fds[i] != -1) ws_send_str(s_ws_fds[i], json_str);
+}
+
 // Classify a log line as "error", "info", or "debug" for the web log filter.
 // ESP log lines start with E/W/I/D/V followed by ' (timestamp) tag: message'.
 static const char *log_classify(const char *line)
@@ -355,11 +371,10 @@ static esp_err_t api_devices_get(httpd_req_t *req)
 
     s_manager->mIoDevicesMutex.lock();
     for (const auto &[id, dev] : s_manager->mIoDevices) {
-        if (dev.is_deleted) continue;
-
         cJSON *obj = cJSON_CreateObject();
         cJSON_AddStringToObject(obj, "id", id.c_str());
         cJSON_AddStringToObject(obj, "name", dev.info.name);
+        cJSON_AddBoolToObject(obj, "inactive", dev.is_deleted);
 
         int pos  = (dev.position == iohome::UNKNOWN_POSITION) ? -1 : (int)dev.position;
         int tilt = (dev.tilt     == iohome::UNKNOWN_POSITION) ? -1 : (int)dev.tilt;
@@ -373,6 +388,7 @@ static esp_err_t api_devices_get(httpd_req_t *req)
             iohome::IoDeviceManufacturer(dev.info.manufacturer).c_str());
         cJSON_AddBoolToObject(obj, "is_low_power",  dev.info.is_low_power);
         cJSON_AddBoolToObject(obj, "is_stopped",    dev.is_stopped);
+        cJSON_AddBoolToObject(obj, "is_inverted",   dev.info.is_openclose_inverted);
         cJSON_AddBoolToObject(obj, "tilt_supported",
             iohome::deviceTypeSupportsTilt(dev.info.device_type));
         cJSON_AddItemToArray(arr, obj);
@@ -447,6 +463,9 @@ static esp_err_t api_action_post(httpd_req_t *req)
         ok = s_manager->mIoHome->SetDeviceTilt(deviceId, (uint8_t)value);
     } else if (strcmp(action, "identify") == 0) {
         ok = s_manager->mIoHome->IdentifyDevice(deviceId);
+    } else if (strcmp(action, "invertOpenClose") == 0) {
+        s_manager->mIoHome->InvertOpenClosePositionForDevice(deviceId);
+        ok = true;
     } else if (strcmp(action, "rename") == 0) {
         cJSON *jName = cJSON_GetObjectItem(json, "value");
         const char *newName = cJSON_IsString(jName) ? jName->valuestring : "";
@@ -469,6 +488,19 @@ static esp_err_t api_action_post(httpd_req_t *req)
         if (strlen(remoteId) > 0) { s_manager->RemoveIoRemote(remoteId); ok = true; }
     } else if (strcmp(action, "addRemote") == 0) {
         ok = true; // name-only registration; link separately via linkRemote
+    } else if (strcmp(action, "deactivateDevice") == 0) {
+        if (strlen(deviceId) > 0) { s_manager->DeactivateDevice(deviceId); ok = true; }
+    } else if (strcmp(action, "reactivateDevice") == 0) {
+        if (strlen(deviceId) > 0) { s_manager->ReactivateDevice(deviceId); ok = true; }
+    } else if (strcmp(action, "deleteDevice") == 0) {
+        if (strlen(deviceId) > 0) {
+            ok = s_manager->DeleteDevice(deviceId);
+            if (!ok) {
+                cJSON_Delete(json);
+                send_result(req, false, "Deactivate the device first before deleting.");
+                return ESP_OK;
+            }
+        }
     } else {
         cJSON_Delete(json);
         send_result(req, false, "Unknown action");
@@ -1093,6 +1125,102 @@ static esp_err_t api_upload_web_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// ─── Pairing ────────────────────────────────────────────────────────────────
+
+static bool s_pairing_active = false;
+
+static void pairing_task(void *)
+{
+    ESP_LOGI(TAG, "Pairing task started");
+    const int MAX_ATTEMPTS = 60; // 60 × ~2 s = ~120 s window
+    bool ok = false;
+    int heartbeat_counter = 0;
+    for (int attempt = 0; attempt < MAX_ATTEMPTS && s_pairing_active; attempt++)
+    {
+        ok = s_manager->mIoHome->DiscoverAndPairDevice();
+        if (ok) break;
+        // Broadcast remaining time every ~5 attempts (~10 s)
+        if (++heartbeat_counter >= 5) {
+            heartbeat_counter = 0;
+            int remaining_s = (MAX_ATTEMPTS - attempt - 1) * 2;
+            char buf[64];
+            snprintf(buf, sizeof(buf), "{\"type\":\"pairing_active\",\"remaining_s\":%d}", remaining_s);
+            web_server_broadcast_message(buf);
+        }
+    }
+    s_pairing_active = false;
+    if (!ok) {
+        ESP_LOGW(TAG, "Pairing timed out after 120 s");
+        web_server_broadcast_message("{\"type\":\"pair_failed\"}");
+    }
+    // On success device_added is broadcast from deviceStatusCallback
+    vTaskDelete(nullptr);
+}
+
+static esp_err_t api_pair_start_post(httpd_req_t *req)
+{
+    if (s_pairing_active) {
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"status\":\"busy\"}");
+        return ESP_OK;
+    }
+    s_pairing_active = true;
+    xTaskCreate(pairing_task, "pair_task", 4096, nullptr, 5, nullptr);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"started\"}");
+    return ESP_OK;
+}
+
+static esp_err_t api_pair_status_get(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, s_pairing_active ? "{\"active\":true}" : "{\"active\":false}");
+    return ESP_OK;
+}
+
+// ─── Remote capture ─────────────────────────────────────────────────────────
+
+#define REMOTE_CAPTURE_TIMEOUT_MS 30000
+
+static TaskHandle_t s_capture_timeout_task = nullptr;
+
+static void capture_timeout_task(void *)
+{
+    vTaskDelay(pdMS_TO_TICKS(REMOTE_CAPTURE_TIMEOUT_MS));
+    if (s_manager->IsCaptureActive()) {
+        s_manager->StopRemoteCapture();
+        ESP_LOGI(TAG, "Remote capture window timed out");
+        web_server_broadcast_message("{\"type\":\"remote_capture_timeout\"}");
+    }
+    s_capture_timeout_task = nullptr;
+    vTaskDelete(nullptr);
+}
+
+static esp_err_t api_capture_start_post(httpd_req_t *req)
+{
+    s_manager->StartRemoteCapture();
+    if (s_capture_timeout_task != nullptr) {
+        vTaskDelete(s_capture_timeout_task);
+        s_capture_timeout_task = nullptr;
+    }
+    xTaskCreate(capture_timeout_task, "cap_timeout", 2048, nullptr, 3, &s_capture_timeout_task);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"started\"}");
+    return ESP_OK;
+}
+
+static esp_err_t api_capture_cancel_post(httpd_req_t *req)
+{
+    if (s_capture_timeout_task != nullptr) {
+        vTaskDelete(s_capture_timeout_task);
+        s_capture_timeout_task = nullptr;
+    }
+    s_manager->StopRemoteCapture();
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"cancelled\"}");
+    return ESP_OK;
+}
+
 // ─── Server startup ─────────────────────────────────────────────────────────
 
 void web_server_start(void *ioRtsManager)
@@ -1117,7 +1245,7 @@ void web_server_start(void *ioRtsManager)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
     config.task_priority = tskIDLE_PRIORITY + 3; // below radio (8), IO processing (6), status updates (4)
-    config.max_uri_handlers = 20;
+    config.max_uri_handlers = 25;
     config.max_open_sockets = 13; // browser opens many parallel connections for static files + WS
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.enable_so_linger = false;
@@ -1164,6 +1292,10 @@ void web_server_start(void *ioRtsManager)
     reg("/api/ota/key",           HTTP_GET,  api_ota_key_get);
     reg("/api/info",              HTTP_GET,  api_info_get);
     reg("/api/upload/web*",       HTTP_POST, api_upload_web_post);
+    reg("/api/pair/start",        HTTP_POST, api_pair_start_post);
+    reg("/api/pair/status",       HTTP_GET,  api_pair_status_get);
+    reg("/api/remote/capture/start",  HTTP_POST, api_capture_start_post);
+    reg("/api/remote/capture/cancel", HTTP_POST, api_capture_cancel_post);
 
     // Wildcard catch-all for static files
     reg("/*", HTTP_GET, static_file_handler);

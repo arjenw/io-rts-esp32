@@ -202,11 +202,65 @@
                 );
             }
 
+            if (freshDevice.inactive) {
+                // Inactive device: Re-activate (pair button) + Delete (delete button with confirm)
+                app.openPopup(
+                    app.i18nText("popup.edit_device_title", "Edit Device"),
+                    app.i18nText("popup.device_is_inactive", "This device is inactive."),
+                    infoLines,
+                    [""],
+                    {
+                        showSave: false,
+                        showInput: false,
+                        btnShowDelete: true,
+                        deleteInfo: app.i18nText("popup.delete_warning",
+                            "Permanent removal. The physical device cannot be re-paired without factory reset."),
+                        pairLabel: app.i18nText("popup.reactivate_label", "Restore device to active state:"),
+                        pairBtnName: app.i18nText("button.reactivate", "Re-activate"),
+                        onPair: async function () {
+                            try {
+                                await window.MiOpenApi.postJson("/api/action", {
+                                    deviceId: freshDevice.id, action: "reactivateDevice"
+                                });
+                                app.logStatus(app.i18nText("popup.device_reactivated", "Device re-activated."), "info");
+                                await fetchAndDisplayDevices(app);
+                            } catch (e) {
+                                app.logStatus("Error: " + e.message, "error");
+                            }
+                        },
+                        onDelete: async function () {
+                            try {
+                                await window.MiOpenApi.postJson("/api/action", {
+                                    deviceId: freshDevice.id, action: "deleteDevice"
+                                });
+                                app.logStatus(app.i18nText("popup.device_deleted", "Device permanently deleted."), "info");
+                                await fetchAndDisplayDevices(app);
+                            } catch (e) {
+                                app.logStatus("Error: " + e.message, "error");
+                            }
+                        }
+                    }
+                );
+                return;
+            }
+
             var opts = {
                 showSave: true,
                 showInput: true,
-                btnShowDelete: false,
+                btnShowDelete: true,
+                deleteBtnLabel: app.i18nText("button.deactivate", "Deactivate"),
+                deleteInfo: app.i18nText("popup.deactivate_warning",
+                    "The device will be kept as inactive and can be re-activated later."),
                 defaultValue: freshDevice.name,
+                showBoolean: true,
+                booleanLabel: app.i18nText("label.invert_openclose", "Invert open/close"),
+                defaultBoolean: !!freshDevice.is_inverted,
+                onUnpair: function () {
+                    window.MiOpenApi.postJson("/api/action", { deviceId: freshDevice.id, action: "identify" })
+                        .then(function () { app.logStatus(app.i18nText("popup.identifying", "Identifying device..."), "info"); })
+                        .catch(function (e) { app.logStatus("Error: " + e.message, "error"); });
+                },
+                unpairBtnName: app.i18nText("button.identify", "Identify"),
                 onSave: async function (newName) {
                     if (!newName.trim() || newName === freshDevice.name) return;
                     try {
@@ -219,6 +273,17 @@
                         await fetchAndDisplayDevices(app);
                     } catch (e) {
                         app.logStatus("Error renaming: " + e.message, "error");
+                    }
+                },
+                onDelete: async function () {
+                    try {
+                        await window.MiOpenApi.postJson("/api/action", {
+                            deviceId: freshDevice.id, action: "deactivateDevice"
+                        });
+                        app.logStatus(app.i18nText("popup.device_deactivated", "Device deactivated."), "info");
+                        await fetchAndDisplayDevices(app);
+                    } catch (e) {
+                        app.logStatus("Error: " + e.message, "error");
                     }
                 }
             };
@@ -249,6 +314,21 @@
                 [""],
                 opts
             );
+
+            // Wire the invert toggle — fires immediately on change, no Save needed
+            var boolInput = document.getElementById("popup-boolean");
+            if (boolInput) {
+                boolInput.onchange = function () {
+                    window.MiOpenApi.postJson("/api/action", { deviceId: freshDevice.id, action: "invertOpenClose" })
+                        .then(function () {
+                            app.logStatus(app.i18nText("popup.inverted", "Open/close direction inverted."), "info");
+                        })
+                        .catch(function (e) {
+                            app.logStatus("Error: " + e.message, "error");
+                            boolInput.checked = !boolInput.checked; // revert checkbox on failure
+                        });
+                };
+            }
         })();
     }
 
@@ -283,7 +363,15 @@
                 listItem.appendChild(nameSpan);
                 listItem.appendChild(typeBadge);
 
-                buildControls(app, device, listItem, group);
+                if (device.inactive) {
+                    listItem.classList.add("inactive");
+                    var inactiveBadge = document.createElement("span");
+                    inactiveBadge.className = "type-badge inactive-badge";
+                    inactiveBadge.textContent = app.i18nText("badge.inactive", "inactive");
+                    listItem.appendChild(inactiveBadge);
+                } else {
+                    buildControls(app, device, listItem, group);
+                }
 
                 listItem.appendChild(createDeviceButton(
                     app.i18nText("button.edit", "edit"), "edit",
@@ -291,7 +379,7 @@
                 ));
 
                 deviceList.appendChild(listItem);
-                if (device.position >= 0) updateDeviceFill(device.id, device.position);
+                if (!device.inactive && device.position >= 0) updateDeviceFill(device.id, device.position);
             });
 
             app.logStatus("Device list updated.", "info");
@@ -300,9 +388,197 @@
         }
     }
 
+    // ── Pairing Wizard ──────────────────────────────────────────────────────
+    var pairingWizard = (function () {
+        var _app = null;
+        var _wizard = null;
+        var _statusEl = null;
+        var _btnsEl = null;
+        var _pendingCaptureDeviceId = null;
+        var _badge = null;
+        var _scanning = false;
+
+        function open(app) {
+            _app = app;
+            _wizard = document.getElementById("pair-wizard");
+            _statusEl = document.getElementById("pair-wizard-status");
+            _btnsEl = document.getElementById("pair-wizard-buttons");
+            _badge = document.getElementById("pairing-badge");
+            document.getElementById("pair-wizard-close").onclick = cancel;
+            _wizard.classList.add("open");
+            showStep1();
+        }
+
+        function close() {
+            if (_wizard) _wizard.classList.remove("open");
+            hideBadge();
+            _scanning = false;
+        }
+
+        function cancel() {
+            if (_pendingCaptureDeviceId !== null) {
+                window.MiOpenApi.postJson("/api/remote/capture/cancel", {}).catch(function () {});
+                _pendingCaptureDeviceId = null;
+            }
+            close();
+        }
+
+        function showBadge(remainingS) {
+            if (!_badge) return;
+            var mins = Math.floor(remainingS / 60);
+            var secs = remainingS % 60;
+            var label = (mins > 0 ? mins + "m " : "") + secs + "s";
+            _badge.textContent = "🔗 " + label;
+            _badge.style.display = "";
+            _badge.onclick = function () { if (_wizard) _wizard.classList.add("open"); };
+        }
+
+        function hideBadge() {
+            if (_badge) { _badge.style.display = "none"; _badge.onclick = null; }
+        }
+
+        function onPairingActive(remainingS) {
+            if (!_scanning) return;
+            showBadge(remainingS);
+            // Update countdown in wizard status if it is open
+            if (_statusEl && _wizard && _wizard.classList.contains("open")) {
+                var mins = Math.floor(remainingS / 60);
+                var secs = remainingS % 60;
+                var timeStr = (mins > 0 ? mins + "m " : "") + secs + "s";
+                _statusEl.innerHTML = _app.i18nText("popup.pair_step2_scanning",
+                    "Scanning up to 2 minutes...") + " <strong>" + timeStr + "</strong>";
+            }
+        }
+
+        function setStatus(html) { if (_statusEl) _statusEl.innerHTML = html; }
+        function setButtons(btns) {
+            if (!_btnsEl) return;
+            _btnsEl.textContent = "";
+            btns.forEach(function (b) { _btnsEl.appendChild(b); });
+        }
+
+        function makeBtn(label, cls, onClick) {
+            var btn = document.createElement("button");
+            btn.textContent = label;
+            btn.className = cls || "btn-text";
+            btn.addEventListener("click", onClick);
+            return btn;
+        }
+
+        function showStep1() {
+            _pendingCaptureDeviceId = null;
+            _scanning = false;
+            hideBadge();
+            setStatus(_app.i18nText("popup.pair_step1_text", "Put the device into pairing mode, then press Start."));
+            setButtons([
+                makeBtn(_app.i18nText("button.start_discovery", "Start Discovery"), "pair", function () {
+                    _scanning = true;
+                    showBadge(120);
+                    setStatus(_app.i18nText("popup.pair_step2_scanning", "Scanning up to 2 minutes...") + " <strong>2m 0s</strong>");
+                    setButtons([makeBtn(_app.i18nText("button.cancel", "Cancel"), "danger", cancel)]);
+                    window.MiOpenApi.postJson("/api/pair/start", {}).catch(function (e) {
+                        _scanning = false;
+                        hideBadge();
+                        setStatus(_app.i18nText("popup.pair_failed", "Pairing request failed.") + " " + e.message);
+                        showRetry();
+                    });
+                }),
+                makeBtn(_app.i18nText("button.cancel", "Cancel"), "danger", cancel)
+            ]);
+        }
+
+        function showRetry() {
+            setButtons([
+                makeBtn(_app.i18nText("button.retry", "Retry"), "pair", showStep1),
+                makeBtn(_app.i18nText("button.cancel", "Cancel"), "danger", cancel)
+            ]);
+        }
+
+        function onDeviceAdded(deviceId, deviceName) {
+            if (!_wizard || !_wizard.classList.contains("open")) return;
+            _scanning = false;
+            hideBadge();
+            _pendingCaptureDeviceId = deviceId;
+            setStatus(_app.i18nText("popup.pair_step3_success", "Device paired: {name}").replace("{name}", deviceName));
+            setButtons([
+                makeBtn(_app.i18nText("button.link_remote", "Link Remote"), "pair", function () { startCapture(deviceId); }),
+                makeBtn(_app.i18nText("button.skip", "Done"), "", cancel)
+            ]);
+            fetchAndDisplayDevices(_app);
+        }
+
+        function onPairFailed() {
+            if (!_wizard || !_wizard.classList.contains("open")) return;
+            _scanning = false;
+            hideBadge();
+            setStatus(_app.i18nText("popup.pair_timeout", "No device found. Make sure it is in pairing mode."));
+            showRetry();
+        }
+
+        function startCapture(deviceId) {
+            _pendingCaptureDeviceId = deviceId;
+            setStatus(_app.i18nText("popup.remote_capture_prompt", "Press any button on the remote to register it..."));
+            setButtons([makeBtn(_app.i18nText("button.cancel", "Cancel"), "danger", cancel)]);
+            window.MiOpenApi.postJson("/api/remote/capture/start", {}).catch(function (e) {
+                setStatus("Capture start failed: " + e.message);
+                showRetry();
+            });
+        }
+
+        function onRemoteSeen(remoteId) {
+            if (!_wizard || !_wizard.classList.contains("open")) return;
+            var devId = _pendingCaptureDeviceId;
+            setStatus(_app.i18nText("popup.remote_captured", "Remote detected: {id}").replace("{id}", remoteId));
+            setButtons([
+                makeBtn(_app.i18nText("button.link_remote", "Link"), "pair", function () {
+                    window.MiOpenApi.postJson("/api/remote/capture/cancel", {}).catch(function () {});
+                    window.MiOpenApi.postJson("/api/action", {
+                        deviceId: devId, action: "linkRemote", remoteId: remoteId
+                    }).then(function () {
+                        _app.logStatus("Remote " + remoteId + " linked.", "info");
+                        fetchAndDisplayDevices(_app);
+                        cancel();
+                    }).catch(function (e) {
+                        _app.logStatus("Link failed: " + e.message, "error");
+                    });
+                }),
+                makeBtn(_app.i18nText("button.skip", "Skip"), "", function () {
+                    window.MiOpenApi.postJson("/api/remote/capture/cancel", {}).catch(function () {});
+                    cancel();
+                })
+            ]);
+        }
+
+        function onCaptureTimeout() {
+            if (!_wizard || !_wizard.classList.contains("open")) return;
+            var devId = _pendingCaptureDeviceId;
+            setStatus(_app.i18nText("popup.remote_capture_timeout", "No remote detected within 30 seconds."));
+            setButtons([
+                makeBtn(_app.i18nText("button.retry", "Retry"), "pair", function () { startCapture(devId); }),
+                makeBtn(_app.i18nText("button.skip", "Done"), "", cancel)
+            ]);
+        }
+
+        return {
+            open: open,
+            cancel: cancel,
+            onDeviceAdded: onDeviceAdded,
+            onPairFailed: onPairFailed,
+            onPairingActive: onPairingActive,
+            onRemoteSeen: onRemoteSeen,
+            onCaptureTimeout: onCaptureTimeout
+        };
+    })();
+
     function init(app) {
         app.fetchAndDisplayDevices = function () { return fetchAndDisplayDevices(app); };
         app.updateDeviceFill = updateDeviceFill;
+        app.pairingWizard = pairingWizard;
+
+        var pairBtn = document.getElementById("pair-device-btn");
+        if (pairBtn) {
+            pairBtn.addEventListener("click", function () { pairingWizard.open(app); });
+        }
     }
 
     window.MiOpenDevices = { init: init };

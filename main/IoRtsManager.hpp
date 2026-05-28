@@ -25,9 +25,22 @@ namespace IoRts
         /// @brief Ask to reboot ESP32
         void Reboot();
 
-        /// @brief Remove IO device
+        /// @brief Remove IO device (legacy — calls DeactivateDevice)
         /// @param deviceID device ID (6 characters as hex representation of the 3 bytes, eg "112233")
         void RemoveIoDevice(const std::string &deviceID);
+
+        /// @brief Deactivate device: sets is_deleted=true, stops radio monitoring, keeps NVS file (reversible)
+        /// @param deviceID device ID (6 characters as hex representation of the 3 bytes, eg "112233")
+        void DeactivateDevice(const std::string &deviceID);
+
+        /// @brief Re-activate a previously deactivated device: clears is_deleted, restores radio monitoring
+        /// @param deviceID device ID (6 characters as hex representation of the 3 bytes, eg "112233")
+        void ReactivateDevice(const std::string &deviceID);
+
+        /// @brief Permanently delete a device — only allowed when already deactivated (is_deleted==true)
+        /// @param deviceID device ID (6 characters as hex representation of the 3 bytes, eg "112233")
+        /// @return true on success, false if device is still active (must deactivate first)
+        bool DeleteDevice(const std::string &deviceID);
 
         /// @brief Declare a remote attached to a device. When the remote is used, device status will be monitored.
         /// @param remoteID Remote ID (6 characters as hex representation of the 3 bytes, eg "112233")
@@ -38,6 +51,15 @@ namespace IoRts
         /// @brief Remove IO remote
         /// @param remoteID remote ID (6 characters as hex representation of the 3 bytes, eg "112233")
         void RemoveIoRemote(const std::string &remoteID);
+
+        /// @brief Start remote capture window — next frame from an unregistered sender triggers a broadcast
+        void StartRemoteCapture();
+
+        /// @brief Cancel an active remote capture window
+        void StopRemoteCapture();
+
+        /// @brief Returns true if a remote capture window is currently open
+        bool IsCaptureActive() const;
 
         /// @brief Retrieve current configuration about passive / active mode
         /// @return true if currently in passive mode
