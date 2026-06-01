@@ -999,6 +999,23 @@ static esp_err_t api_syslog_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// ─── POST /api/reboot ───────────────────────────────────────────────────────
+
+static esp_err_t api_reboot_post(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Reboot requested via web");
+    send_result(req, true, "Rebooting");
+    esp_timer_handle_t t;
+    esp_timer_create_args_t ta = {};
+    ta.callback = [](void *){ esp_restart(); };
+    ta.name = "web_reboot";
+    if (esp_timer_create(&ta, &t) == ESP_OK)
+        esp_timer_start_once(t, 500 * 1000);
+    else
+        esp_restart();
+    return ESP_OK;
+}
+
 // ─── GET /api/io/key ────────────────────────────────────────────────────────
 
 static esp_err_t api_io_key_get(httpd_req_t *req)
@@ -1565,6 +1582,7 @@ void web_server_start(void *ioRtsManager)
     reg("/api/ota",               HTTP_POST, api_ota_post);
     reg("/api/ota/key",           HTTP_GET,  api_ota_key_get);
     reg("/api/ota/key",           HTTP_POST, api_ota_key_post);
+    reg("/api/reboot",            HTTP_POST, api_reboot_post);
     reg("/api/io/key",            HTTP_GET,  api_io_key_get);
     reg("/api/io/key",            HTTP_POST, api_io_key_post);
     reg("/api/io/sniff",          HTTP_GET,  api_io_sniff_get);

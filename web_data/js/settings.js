@@ -1,7 +1,5 @@
 (function () {
 
-    // ── WiFi Fallback AP ──────────────────────────────────────────────────────
-
     let fallbackStatusTimer = null;
 
     async function loadFallbackConfig(app) {
@@ -21,7 +19,7 @@
         const el = app.elements.fallbackStatus;
         if (!el) return;
         if (cfg.ap_running) {
-            el.textContent = "⚠ Fallback AP active (retry " + (cfg.retries_boot || "?") + ")";
+            el.textContent = "⚠ Fallback AP active";
             el.style.color = "#e67e22";
         } else if (cfg.connected) {
             el.textContent = "● Connected";
@@ -36,7 +34,7 @@
         try {
             const cfg = await window.MiOpenApi.requestJson("/api/wifi/fallback");
             updateFallbackStatus(app, cfg);
-        } catch (e) { /* ignore */ }
+        } catch (e) {  }
     }
 
     async function saveFallbackConfig(app) {
@@ -47,13 +45,11 @@
                 retries_running:  parseInt(app.elements.fallbackRetriesRunning.value) || 3,
                 ap_timeout_s:     parseInt(app.elements.fallbackTimeout.value)        || 0
             });
-            app.logStatus("WiFi fallback AP settings saved.", "debug");
+            showToast("Fallback AP settings saved.", "success");
         } catch (e) {
-            app.logStatus("Error saving fallback config", "error");
+            showToast("Error saving fallback config.", "error");
         }
     }
-
-    // ── WiFi Network ─────────────────────────────────────────────────────────
 
     async function loadWifiConfig(app) {
         try {
@@ -70,41 +66,40 @@
         const statusEl = app.elements.wifiStatus;
 
         if (!ssid) {
-            if (statusEl) { statusEl.textContent = "SSID cannot be empty."; statusEl.style.color = "#e74c3c"; }
+            showToast("SSID cannot be empty.", "error");
             return;
         }
 
-        const msg = "The device will restart and connect to ‘" + ssid + "’. "
+        const msg = "The device will restart and connect to '" + ssid + "'. "
             + "If credentials are wrong the fallback AP (io-rts-setup) will appear after a short delay.";
         if (!confirm(msg)) return;
 
-        if (statusEl) { statusEl.textContent = "Saving…"; statusEl.style.color = "#888"; }
+        if (statusEl) statusEl.textContent = "";
 
         const payload = { ssid: ssid };
         if (pwd) payload.password = pwd;
 
         try {
             await window.MiOpenApi.postJson("/api/wifi/config", payload);
-            if (statusEl) { statusEl.textContent = "Restarting…"; statusEl.style.color = "#e67e22"; }
-            // Poll until device comes back, then reload
+            showToast("WiFi saved — restarting…", "info", 8000);
             const poll = setInterval(async function () {
                 try {
                     const r = await window.MiOpenApi.requestJson("/api/ota/key");
                     if (r && r.key) { clearInterval(poll); window.location.reload(); }
-                } catch (e) { /* still rebooting */ }
+                } catch (e) {  }
             }, 3000);
         } catch (e) {
-            if (statusEl) { statusEl.textContent = "Error: " + (e.message || e); statusEl.style.color = "#e74c3c"; }
+            showToast("Error saving WiFi: " + (e.message || e), "error");
         }
     }
 
     async function loadMqttConfig(app) {
         try {
             const config = await window.MiOpenApi.requestJson("/api/mqtt");
-            app.elements.mqttUserInput.value = config.user || "";
-            app.elements.mqttServerInput.value = config.server || "";
-            app.elements.mqttPasswordInput.value = config.password || "";
-            app.elements.mqttPortInput.value = config.port || "";
+            app.elements.mqttUserInput.value      = config.user      || "";
+            app.elements.mqttServerInput.value    = config.server    || "";
+            app.elements.mqttPasswordInput.value  = config.password  || "";
+            app.elements.mqttPortInput.value      = config.port      || "";
             app.elements.mqttDiscoveryInput.value = config.discovery || "";
         } catch (error) {
             console.error("Error fetching MQTT config", error);
@@ -113,28 +108,28 @@
 
     async function updateMqttConfig(app) {
         try {
-            const result = await window.MiOpenApi.postJson("/api/mqtt", {
-                user: app.elements.mqttUserInput.value,
-                server: app.elements.mqttServerInput.value,
-                password: app.elements.mqttPasswordInput.value,
-                port: app.elements.mqttPortInput.value,
+            await window.MiOpenApi.postJson("/api/mqtt", {
+                user:      app.elements.mqttUserInput.value,
+                server:    app.elements.mqttServerInput.value,
+                password:  app.elements.mqttPasswordInput.value,
+                port:      app.elements.mqttPortInput.value,
                 discovery: app.elements.mqttDiscoveryInput.value
             });
-            app.logStatus(result.message || "MQTT settings updated.", "debug");
+            showToast("MQTT settings saved. Reboot to apply.", "success");
         } catch (error) {
-            app.logStatus("Error updating MQTT config", "error");
+            showToast("Error saving MQTT config.", "error");
         }
     }
 
     async function uploadSelectedFile(app, input, url, missingMessage, successMessage, refreshFn) {
         const file = input.files[0];
-        if (!file) { app.logStatus(missingMessage, "error"); return; }
+        if (!file) { showToast(missingMessage, "error"); return; }
         try {
             const result = await window.MiOpenApi.uploadFile(url, file);
-            app.logStatus(result.message || successMessage, "debug");
+            showToast(result.message || successMessage, "success");
             if (refreshFn) await refreshFn();
         } catch (error) {
-            app.logStatus(error.message || successMessage, "error");
+            showToast(error.message || "Upload failed.", "error");
         }
     }
 
@@ -302,39 +297,56 @@
         loadIoKey(app);
     }
 
+    function initReboot() {
+        var btn = document.getElementById("reboot-btn");
+        if (!btn) return;
+        btn.addEventListener("click", function () {
+            if (!confirm("Reboot the device now?")) return;
+            fetch("/api/reboot", { method: "POST" })
+                .then(function () {
+                    showToast("Rebooting…", "info", 60000);
+                    var deadline = Date.now() + 60000;
+                    function poll() {
+                        if (Date.now() > deadline) {
+                            showToast("Device did not come back online.", "error");
+                            return;
+                        }
+                        fetch("/api/devices?" + Date.now(), { cache: "no-store" })
+                            .then(function (r) {
+                                if (r.ok) { showToast("Device is back online.", "success"); }
+                                else { setTimeout(poll, 2000); }
+                            })
+                            .catch(function () { setTimeout(poll, 2000); });
+                    }
+                    setTimeout(poll, 5000);
+                })
+                .catch(function () { showToast("Reboot request failed.", "error"); });
+        });
+    }
+
     function init(app) {
-        // Fallback AP elements
+
         app.elements.fallbackEnabled        = document.getElementById("fallback-enabled");
         app.elements.fallbackRetriesBoot    = document.getElementById("fallback-retries-boot");
         app.elements.fallbackRetriesRunning = document.getElementById("fallback-retries-running");
         app.elements.fallbackTimeout        = document.getElementById("fallback-timeout");
         app.elements.fallbackStatus         = document.getElementById("fallback-status");
-
         app.loadFallbackConfig = function () { return loadFallbackConfig(app); };
         app.saveFallbackConfig = function () { return saveFallbackConfig(app); };
-
-        document.getElementById("fallback-save").addEventListener("click", function () {
-            app.saveFallbackConfig();
-        });
-
-        // Load on init and poll status every 5s
+        document.getElementById("fallback-save").addEventListener("click", function () { app.saveFallbackConfig(); });
         loadFallbackConfig(app);
         fallbackStatusTimer = setInterval(function () { pollFallbackStatus(app); }, 5000);
 
-        // WiFi Network elements
         app.elements.wifiSsidInput     = document.getElementById("wifi-ssid");
         app.elements.wifiPasswordInput = document.getElementById("wifi-password");
         app.elements.wifiStatus        = document.getElementById("wifi-config-status");
         app.loadWifiConfig  = function () { return loadWifiConfig(app); };
         app.saveWifiConfig  = function () { return saveWifiConfig(app); };
-        document.getElementById("wifi-config-save").addEventListener("click", function () {
-            app.saveWifiConfig();
-        });
+        document.getElementById("wifi-config-save").addEventListener("click", function () { app.saveWifiConfig(); });
         loadWifiConfig(app);
 
         initIoKey(app);
-
-        // WiFi scan
+        initReboot();
         (function () {
             var scanBtn     = document.getElementById("wifi-scan-btn");
             var scanResults = document.getElementById("wifi-scan-results");
@@ -375,17 +387,13 @@
                         });
                         scanResults.style.display = "block";
                     })
-                    .catch(function () {
-                        scanResults.innerHTML = "<div style='padding:8px;color:red;font-size:.9em;'>Scan failed.</div>";
-                        scanResults.style.display = "block";
-                    })
+                    .catch(function () { showToast("WiFi scan failed.", "error"); })
                     .finally(function () {
                         scanBtn.disabled = false;
                         scanBtn.textContent = "Scan";
                     });
             });
 
-            // Close results when clicking outside
             document.addEventListener("click", function (e) {
                 if (!scanResults.contains(e.target) && e.target !== scanBtn) {
                     scanResults.style.display = "none";
@@ -393,12 +401,13 @@
             });
         })();
 
-        app.loadMqttConfig = function () { return loadMqttConfig(app); };
+        app.loadMqttConfig   = function () { return loadMqttConfig(app); };
         app.updateMqttConfig = function () { return updateMqttConfig(app); };
+
         app.uploadDevices = function () {
             return uploadSelectedFile(
                 app, app.elements.devicesFileInput, "/api/upload/devices",
-                "No devices file selected", "Devices file uploaded",
+                "No devices file selected.", "Devices uploaded.",
                 async function () {
                     await app.fetchAndDisplayDevices();
                     await app.fetchAndDisplayRemotes();
@@ -408,10 +417,12 @@
         app.uploadRemotes = function () {
             return uploadSelectedFile(
                 app, app.elements.remotesFileInput, "/api/upload/remotes",
-                "No remotes file selected", "Remotes file uploaded",
+                "No remotes file selected.", "Remotes uploaded.",
                 function () { return app.fetchAndDisplayRemotes(); }
             );
         };
+
+        initReboot();
     }
 
     function onKeyCaptured(key) {

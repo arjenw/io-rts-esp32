@@ -139,15 +139,18 @@
                     status.style.color = "green";
                     var display = document.getElementById("ota-key-display");
                     if (display) display.value = newKey;
-                    setTimeout(closeModal, 1200);
+                    showToast("OTA key updated.", "success");
+                    setTimeout(closeModal, 1000);
                 } else {
                     status.textContent = "Error: " + (d.msg || "unknown");
                     status.style.color = "red";
+                    showToast("Error: " + (d.msg || "unknown"), "error");
                 }
             })
             .catch(function () {
                 status.textContent = "Network error.";
                 status.style.color = "red";
+                showToast("Network error.", "error");
             })
             .finally(function () {
                 confirmBtn.disabled = false;
@@ -213,19 +216,22 @@
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (d.ok) {
-                    status.textContent = "Key saved. Reboot the device to apply.";
+                    status.textContent = "Key saved. Reboot to apply.";
                     status.style.color = "green";
                     var display = document.getElementById("io-key-display");
                     if (display) display.value = newKey;
-                    setTimeout(closeModal, 2500);
+                    showToast("IO key saved. Reboot to apply.", "success");
+                    setTimeout(closeModal, 1500);
                 } else {
                     status.textContent = "Error: " + (d.msg || "unknown");
                     status.style.color = "red";
+                    showToast("Error: " + (d.msg || "unknown"), "error");
                 }
             })
             .catch(function () {
                 status.textContent = "Network error.";
                 status.style.color = "red";
+                showToast("Network error.", "error");
             })
             .finally(function () {
                 confirmBtn.disabled = false;

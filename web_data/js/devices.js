@@ -17,7 +17,7 @@
         var VENETIAN = ["VENETIAN_BLIND", "LOUVRE_BLIND"];
         var WINDOW = ["WINDOW_OPENER"];
         var GATE = ["GARAGE_OPENER", "GATE_OPENER", "ROLLING_DOOR_OPENER"];
-        // Normalize "Roller shutter" → "ROLLER_SHUTTER" to match the API's human-readable names
+
         var t = (device.type_name || "UNKNOWN").toUpperCase().replace(/[\s\-]+/g, "_");
         if (SHUTTER.indexOf(t) !== -1) return "shutter";
         if (VENETIAN.indexOf(t) !== -1) return "venetian";
@@ -203,7 +203,7 @@
             }
 
             if (freshDevice.inactive) {
-                // Inactive device: Re-activate (pair button) + Delete (delete button with confirm)
+
                 app.openPopup(
                     app.i18nText("popup.edit_device_title", "Edit Device"),
                     app.i18nText("popup.device_is_inactive", "This device is inactive."),
@@ -315,7 +315,6 @@
                 opts
             );
 
-            // Wire the invert toggle — fires immediately on change, no Save needed
             var boolInput = document.getElementById("popup-boolean");
             if (boolInput) {
                 boolInput.onchange = function () {
@@ -388,7 +387,6 @@
         }
     }
 
-    // ── Pairing Wizard ──────────────────────────────────────────────────────
     var pairingWizard = (function () {
         var _app = null;
         var _wizard = null;
@@ -440,7 +438,7 @@
         function onPairingActive(remainingS) {
             if (!_scanning) return;
             showBadge(remainingS);
-            // Update countdown in wizard status if it is open
+
             if (_statusEl && _wizard && _wizard.classList.contains("open")) {
                 var mins = Math.floor(remainingS / 60);
                 var secs = remainingS % 60;
