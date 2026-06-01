@@ -101,12 +101,12 @@
             newInput.value = "";
             status.textContent = "";
             status.style.color = "";
-            modal.style.display = "flex";
+            modal.classList.add("open");
             newInput.focus();
         }
 
         function closeModal() {
-            modal.style.display = "none";
+            modal.classList.remove("open");
         }
 
         editBtn.addEventListener("click", openModal);
@@ -180,12 +180,12 @@
             newInput.value = "";
             status.textContent = "";
             status.style.color = "";
-            modal.style.display = "flex";
+            modal.classList.add("open");
             newInput.focus();
         }
 
         function closeModal() {
-            modal.style.display = "none";
+            modal.classList.remove("open");
         }
 
         editBtn.addEventListener("click", openModal);

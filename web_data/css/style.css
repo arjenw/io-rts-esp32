@@ -445,6 +445,170 @@ ul#device-list li.device.inactive {
     animation: pairing-pulse 1.4s ease-in-out infinite;
     cursor: pointer;
 }
+/* ── Sensitive section (IO system key) ─────────────────────────────────── */
+#io-key-section .title {
+    background: linear-gradient(135deg, #7a1515 0%, #b00020 100%);
+}
+#io-key-section .card {
+    border-left: 3px solid #b00020;
+    border-bottom: 3px solid #b00020;
+}
+.sensitive-notice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(176,0,32,0.08);
+    border: 1px solid rgba(176,0,32,0.25);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: .82em;
+    color: #b00020;
+    margin-bottom: 10px;
+    line-height: 1.4;
+}
+.dark-mode .sensitive-notice {
+    background: rgba(176,0,32,0.15);
+    border-color: rgba(176,0,32,0.35);
+    color: #e05060;
+}
+
+/* ── Read-only key display ──────────────────────────────────────────────── */
+input.key-display {
+    flex: 1;
+    margin: 0;
+    background: var(--color-input) !important;
+    color: var(--color-text);
+    cursor: default;
+    font-family: monospace;
+    letter-spacing: 0.04em;
+    opacity: 0.85;
+}
+
+/* ── Key edit/warning modals ────────────────────────────────────────────── */
+.key-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(0.5rem);
+}
+.key-modal.open {
+    display: flex;
+}
+.key-modal-inner {
+    background: var(--color-card);
+    color: var(--color-text);
+    border-radius: var(--radius);
+    padding: 24px;
+    max-width: 420px;
+    width: 90%;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+}
+.key-modal-inner h3 {
+    margin: 0 0 14px;
+    font-size: 1.1em;
+    color: var(--color-text);
+}
+.key-modal-warning-label {
+    color: #c0392b;
+    font-weight: 700;
+    margin: 0 0 6px;
+    font-size: .88em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.dark-mode .key-modal-warning-label {
+    color: #e05060;
+}
+.key-modal-warning-text {
+    margin: 0 0 16px;
+    font-size: .88em;
+    color: var(--color-text);
+    opacity: 0.8;
+    line-height: 1.5;
+}
+.key-modal-label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: .88em;
+    color: var(--color-text);
+    opacity: 0.8;
+}
+.key-modal-input {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 16px;
+    font-family: monospace;
+    letter-spacing: 0.04em;
+}
+.key-modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+.key-modal-status {
+    margin: 10px 0 0;
+    font-size: .84em;
+    min-height: 1.1em;
+    color: var(--color-text);
+}
+button.btn-ghost {
+    background: var(--color-input);
+    color: var(--color-text);
+}
+button.btn-ghost:hover {
+    background: var(--color7);
+    color: #333;
+}
+button.btn-danger-confirm {
+    background: #b00020;
+    color: #fff;
+}
+button.btn-danger-confirm:hover {
+    background: #8a0018;
+}
+
+/* ── WiFi scan results dropdown ─────────────────────────────────────────── */
+#wifi-scan-results {
+    border: 1px solid var(--color7);
+    border-radius: var(--radius);
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 4px;
+    background: var(--color-card);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+.wifi-scan-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--color7);
+    font-size: .9em;
+    color: var(--color-text);
+    transition: background 0.15s;
+}
+.wifi-scan-row:last-child {
+    border-bottom: none;
+}
+.wifi-scan-row:hover {
+    background: var(--color-accent2);
+    color: #fff;
+}
+.wifi-scan-signal {
+    font-family: monospace;
+    font-size: .8em;
+    opacity: 0.6;
+    white-space: nowrap;
+}
+.wifi-scan-row:hover .wifi-scan-signal {
+    opacity: 0.9;
+}
+
 @media (min-width: 768px) {
     main > div, .card-popup {
         grid-template-columns: repeat(2, 1fr);

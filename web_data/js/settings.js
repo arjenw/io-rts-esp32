@@ -364,11 +364,9 @@
                         }
                         networks.forEach(function (net) {
                             var row = document.createElement("div");
-                            row.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:8px 10px;cursor:pointer;border-bottom:1px solid #eee;font-size:.9em;";
+                            row.className = "wifi-scan-row";
                             row.innerHTML = "<span>" + net.ssid + "</span>"
-                                + "<span style='font-family:monospace;color:#888;font-size:.85em;'>" + rssiToBar(net.rssi) + " " + net.rssi + " dBm</span>";
-                            row.addEventListener("mouseenter", function () { row.style.background = "var(--color-accent2,#eef)"; });
-                            row.addEventListener("mouseleave", function () { row.style.background = ""; });
+                                + "<span class='wifi-scan-signal'>" + rssiToBar(net.rssi) + " " + net.rssi + " dBm</span>";
                             row.addEventListener("click", function () {
                                 ssidInput.value = net.ssid;
                                 scanResults.style.display = "none";
