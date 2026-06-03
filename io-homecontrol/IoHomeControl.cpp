@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <algorithm>
+#include <cmath>
 #include "esp_log.h"
 #include <ios>
 #include <sstream>
@@ -81,6 +82,7 @@ namespace iohome
   static UpdatedDeviceCallback sDeviceStatusCallback;              // Callback to send device status updates to
   static UnknownSenderCallback sUnknownSenderCallback = nullptr;   // Callback for frames from unregistered senders
   static KeySniffCallback sKeySniffCallback = nullptr;             // Callback invoked when a key is captured during sniffing
+  static MovementStartedCallback sMovementStartedCallback = nullptr; // Callback invoked when movement tracking starts
   static volatile bool sSniffKeyActive = false;                    // true while passive key sniffing is active
   static char sSniffedKey[33] = {};                                // last captured key as 32-char hex + null
   static int64_t sSniffStartUs = 0;                                // timestamp when sniffing started
@@ -678,6 +680,11 @@ namespace iohome
                     device->second.move_start_us   = esp_timer_get_time();
                     device->second.move_start_pos  = device->second.position;
                     device->second.move_target_pos = remoteTarget;
+                    if (sMovementStartedCallback)
+                    {
+                      float dist = std::abs(remoteTarget - device->second.position) / 100.0f;
+                      sMovementStartedCallback(deviceID, device->second.transit_time_ms, dist);
+                    }
                   }
                   else
                   {
@@ -1965,6 +1972,11 @@ namespace iohome
   void IoHomeControl::SetKeySniffCallback(KeySniffCallback cb)
   {
     sKeySniffCallback = cb;
+  }
+
+  void IoHomeControl::SetMovementStartedCallback(MovementStartedCallback cb)
+  {
+    sMovementStartedCallback = cb;
   }
 
   void IoHomeControl::StartKeySniff()

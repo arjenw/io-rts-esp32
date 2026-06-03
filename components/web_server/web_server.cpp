@@ -18,6 +18,7 @@
 #include <arpa/inet.h>
 #include <format>
 #include <list>
+#include <cmath>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -463,12 +464,37 @@ static esp_err_t api_action_post(httpd_req_t *req)
 
     if (strcmp(action, "open") == 0) {
         ok = s_manager->mIoHome->OpenDevice(deviceId);
+        if (ok) {
+            s_manager->mIoDevicesMutex.lock();
+            auto it = s_manager->mIoDevices.find(deviceId);
+            float dist = (it != s_manager->mIoDevices.end()) ? std::abs(it->second.move_target_pos - it->second.move_start_pos) / 100.0f : 1.0f;
+            uint32_t tt = (it != s_manager->mIoDevices.end()) ? it->second.transit_time_ms : 0;
+            s_manager->mIoDevicesMutex.unlock();
+            s_manager->ScheduleConfirmationPoll(deviceId, tt, dist);
+        }
     } else if (strcmp(action, "close") == 0) {
         ok = s_manager->mIoHome->CloseDevice(deviceId);
+        if (ok) {
+            s_manager->mIoDevicesMutex.lock();
+            auto it = s_manager->mIoDevices.find(deviceId);
+            float dist = (it != s_manager->mIoDevices.end()) ? std::abs(it->second.move_target_pos - it->second.move_start_pos) / 100.0f : 1.0f;
+            uint32_t tt = (it != s_manager->mIoDevices.end()) ? it->second.transit_time_ms : 0;
+            s_manager->mIoDevicesMutex.unlock();
+            s_manager->ScheduleConfirmationPoll(deviceId, tt, dist);
+        }
     } else if (strcmp(action, "stop") == 0) {
         ok = s_manager->mIoHome->StopDevice(deviceId);
+        if (ok) s_manager->ScheduleConfirmationPoll(deviceId, 0, 0.0f); // poll soon after stop
     } else if (strcmp(action, "position") == 0 && value >= 0 && value <= 100) {
         ok = s_manager->mIoHome->SetDevicePosition(deviceId, (uint8_t)value);
+        if (ok) {
+            s_manager->mIoDevicesMutex.lock();
+            auto it = s_manager->mIoDevices.find(deviceId);
+            float dist = (it != s_manager->mIoDevices.end()) ? std::abs(it->second.move_target_pos - it->second.move_start_pos) / 100.0f : 1.0f;
+            uint32_t tt = (it != s_manager->mIoDevices.end()) ? it->second.transit_time_ms : 0;
+            s_manager->mIoDevicesMutex.unlock();
+            s_manager->ScheduleConfirmationPoll(deviceId, tt, dist);
+        }
     } else if (strcmp(action, "tilt") == 0 && value >= 0 && value <= 100) {
         ok = s_manager->mIoHome->SetDeviceTilt(deviceId, (uint8_t)value);
     } else if (strcmp(action, "identify") == 0) {

@@ -176,9 +176,13 @@ namespace IoRts
             float fraction = (float)elapsed_ms / (float)dev.transit_time_ms;
             if (fraction > 1.0f) fraction = 1.0f;
             float estimated = dev.move_start_pos + (dev.move_target_pos - dev.move_start_pos) * fraction;
+            int estimated_int = (int)estimated;
 #if CONFIG_WEB_ENABLED
-            web_server_broadcast_position(id.c_str(), (int)estimated, false, true);
+            web_server_broadcast_position(id.c_str(), estimated_int, false, true);
 #endif
+            if (sMqttHelper != nullptr)
+                sMqttHelper->PublishEstimatedPosition(id, estimated_int);
+
             // Stop broadcasting once clamped (device should report back soon)
             if (fraction >= 1.0f)
                 dev.move_start_us = 0;
@@ -422,6 +426,47 @@ namespace IoRts
         return sCaptureActive;
     }
 
+    // ── Confirmation poll ────────────────────────────────────────────────────
+
+    struct ConfirmPollArg {
+        IoRtsManager *manager;
+        char deviceID[8]; // 6-char hex + null
+    };
+
+    static void confirmation_poll_cb(void *arg)
+    {
+        auto *a = static_cast<ConfirmPollArg *>(arg);
+        if (a->manager && a->manager->mIoHome)
+        {
+            ESP_LOGI("ioRtsMan", "Confirmation poll for %s", a->deviceID);
+            a->manager->mIoHome->ForceDeviceStatusUpdate(a->deviceID);
+        }
+        delete a;
+    }
+
+    void IoRtsManager::ScheduleConfirmationPoll(const std::string &deviceID, uint32_t transit_time_ms, float distance_fraction)
+    {
+        // Delay = transit_time * distance + 3 s offset; fallback = 60 s
+        uint64_t delay_us;
+        if (transit_time_ms > 0)
+            delay_us = (uint64_t)((float)transit_time_ms * distance_fraction * 1000) + 3000000ULL;
+        else
+            delay_us = 60000000ULL; // 60 s fallback
+
+        auto *arg = new ConfirmPollArg();
+        arg->manager = this;
+        strncpy(arg->deviceID, deviceID.c_str(), sizeof(arg->deviceID) - 1);
+        arg->deviceID[sizeof(arg->deviceID) - 1] = '\0';
+
+        esp_timer_create_args_t ta = {};
+        ta.callback = confirmation_poll_cb;
+        ta.arg = arg;
+        ta.name = "conf_poll";
+        esp_timer_handle_t th;
+        if (esp_timer_create(&ta, &th) == ESP_OK)
+            esp_timer_start_once(th, delay_us);
+    }
+
     bool IoRtsManager::SetTransitTime(const std::string &deviceID, uint32_t transit_time_ms)
     {
         // Update in-memory device
@@ -486,6 +531,10 @@ namespace IoRts
                 mIoHome->ConfigureRadio(IoHomeConfig::GetTxPower());
                 mIoHome->SetUnknownSenderCallback(unknownSenderCallback);
                 mIoHome->SetKeySniffCallback(keySniffCallback);
+                mIoHome->SetMovementStartedCallback([](const std::string &deviceID, uint32_t transit_ms, float dist) {
+                    if (sIoRtsManager)
+                        sIoRtsManager->ScheduleConfirmationPoll(deviceID, transit_ms, dist);
+                });
             }
         }
     }
