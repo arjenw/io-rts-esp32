@@ -47,10 +47,14 @@
         if (slider) slider.value = percent;
     }
 
+    var BTN_LABELS = { open: "Open device", stop: "Stop device", down: "Close device" };
+
     function createDeviceButton(label, className, onClick) {
         const button = document.createElement("button");
         button.textContent = label;
         button.classList.add("btn", className);
+        if (BTN_LABELS[className]) button.setAttribute("aria-label", BTN_LABELS[className]);
+        button.setAttribute("title", BTN_LABELS[className] || label);
         button.addEventListener("click", onClick);
         return button;
     }

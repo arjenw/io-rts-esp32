@@ -322,5 +322,53 @@
         app.loadSyslogConfig();
         app.fetchAndDisplayDevices();
         app.fetchAndDisplayRemotes();
+
+        // ── Win 6: showPage + settings tabs (moved from index.html) ──────────
+        window.showPage = function (page) {
+            document.getElementById("devices-page").style.display = (page === "devices") ? "grid" : "none";
+            document.getElementById("settings-page").style.display = (page === "settings") ? "block" : "none";
+            document.getElementById("help-page").style.display    = (page === "help")     ? "grid" : "none";
+        };
+        (function () {
+            var tabs   = document.querySelectorAll(".settings-tab");
+            var panels = document.querySelectorAll(".settings-panel");
+            tabs.forEach(function (tab) {
+                tab.addEventListener("click", function () {
+                    tabs.forEach(function (t) { t.classList.remove("active"); });
+                    panels.forEach(function (p) { p.classList.remove("active"); });
+                    tab.classList.add("active");
+                    var panel = document.getElementById("panel-" + tab.dataset.tab);
+                    if (panel) panel.classList.add("active");
+                });
+            });
+        })();
+
+        // ── Win 8: Escape key closes any open modal ───────────────────────────
+        document.addEventListener("keydown", function (e) {
+            if (e.key !== "Escape") return;
+            // Generic popup
+            var popup = document.getElementById("popup");
+            if (popup && popup.classList.contains("open")) { closePopup(); return; }
+            // Pair wizard
+            var pw = document.getElementById("pair-wizard");
+            if (pw && pw.classList.contains("open")) { pw.classList.remove("open"); return; }
+            // Key modals
+            ["ota-key-modal", "io-key-edit-modal", "io-key-sniff-modal"].forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el && (el.classList.contains("open") || el.style.display === "flex")) {
+                    el.classList.remove("open");
+                    el.style.display = "none";
+                }
+            });
+        });
+
+        // ── Win 3: Clear log button ───────────────────────────────────────────
+        var clearBtn = document.getElementById("clear-log");
+        if (clearBtn) {
+            clearBtn.addEventListener("click", function () {
+                var msgs = document.getElementById("status-messages");
+                if (msgs) msgs.innerHTML = "";
+            });
+        }
     });
 })();

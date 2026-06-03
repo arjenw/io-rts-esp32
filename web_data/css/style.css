@@ -5,33 +5,46 @@
 }
 :root {
     --radius: 12px;
-    --color-accent: #6a4e67;
-    --color-accent2: #5A6E8C;
-    --color-accent3: #6a0360;
-    --background: #f4f4f4;
-    --color5: #333;
-    --color-card: #fff;
-    --color7: #eee;
-    --color-input: #a2a2a2;
-    --color-text: #000;
+    /* primary surfaces */
+    --color-accent:  #6a4e67;   /* sidebar / title bars */
+    --color-nav:     #5A6E8C;   /* header / footer */
+    --color-primary: #6a0360;   /* buttons / highlights */
+    --background:    #f4f4f4;
+    --color-card:    #fff;
+    --color-border:  #eee;
+    --color-muted:   #a2a2a2;   /* inputs, subdued surfaces */
+    --color-text:    #000;
     --color-header-text: #fff;
-    --popup-background: #fcfbfb91;
+    --popup-background:  #fcfbfb91;
+    /* semantic */
+    --color-danger:  #b00020;
+    --color-success: #27ae60;
+    --color-warning: #e67e22;
+    /* legacy aliases kept for JS/CSS that still reference them */
+    --color-accent2: var(--color-nav);
+    --color-accent3: var(--color-primary);
+    --color-input:   var(--color-muted);
+    --color7:        var(--color-border);
 }
 .dark-mode {
-    --color-accent: #6a4e67;
-    --color2: #5A6E8C;
-    --color3: #6a0360;
-    --background: #262626;
-    --color5: #333;
-    --color-card: #ffffff38;
-    --color7: #eee;
-    --color-input: #757575d1;
-    --color-text: #fff;
+    --color-accent:  #6a4e67;
+    --color-nav:     #5A6E8C;
+    --color-primary: #6a0360;
+    --background:    #262626;
+    --color-card:    #ffffff38;
+    --color-border:  #eee;
+    --color-muted:   #757575d1;
+    --color-text:    #fff;
     --color-header-text: #fff;
-    --popup-background: #939292c7;
+    --popup-background:  #939292c7;
+    /* legacy aliases */
+    --color-accent2: var(--color-nav);
+    --color-accent3: var(--color-primary);
+    --color-input:   var(--color-muted);
+    --color7:        var(--color-border);
 }
 body {
-    font-family: Arial, sans-serif;
+    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
     margin: 0;
     padding: 0;
     background-color: var(--background);
@@ -145,6 +158,10 @@ ul#device-list span {
   text-align: center;
   margin: auto;
   color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 table {
   border-collapse: collapse;
@@ -384,9 +401,10 @@ header h1 {
 .device-slider {
     flex: 1;
     min-width: 0;
-    height: 4px;
-    accent-color: var(--color-accent3);
+    height: 8px;
+    accent-color: var(--color-primary);
     cursor: pointer;
+    touch-action: none;
 }
 ul#device-list li .btn-text {
     margin: 1px auto;
@@ -568,7 +586,7 @@ ul#device-list li.device.inactive {
     color: var(--color-text);
 }
 .restart-notice {
-    color: #e67e22;
+    color: var(--color-warning);
     font-size: 0.88em;
     margin: 6px 0 2px;
 }
