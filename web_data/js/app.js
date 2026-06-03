@@ -223,6 +223,10 @@
                     if (window.MiOpenSettings && window.MiOpenSettings.onKeyCaptured) {
                         window.MiOpenSettings.onKeyCaptured(data.key);
                     }
+                } else if (data.type === "calibration_progress" || data.type === "calibration_done" || data.type === "calibration_failed") {
+                    if (window._calWsHandlers && window._calWsHandlers[data.id]) {
+                        window._calWsHandlers[data.id](data.type, data);
+                    }
                 }
             } catch (e) {  }
         };

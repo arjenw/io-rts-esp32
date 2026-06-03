@@ -336,15 +336,20 @@
                 };
             }
 
-            // Inject transit-time edit row into popup right panel
+            // Inject transit-time edit row + calibration wizard into popup right panel
             if (hasPosition) {
                 var rightPanel = document.getElementById("popup-content");
                 if (rightPanel) {
                     var ttRow = document.createElement("div");
                     ttRow.style.cssText = "margin-top:12px;font-size:.9em;";
-                    ttRow.innerHTML = transitSecs > 0
-                        ? "<strong>Transit time:</strong> " + transitSecs + " s"
-                        : "<strong>Transit time:</strong> <em>not calibrated</em>";
+
+                    function renderTtRow() {
+                        ttRow.innerHTML = transitSecs > 0
+                            ? "<strong>Transit time:</strong> " + transitSecs + " s"
+                            : "<strong>Transit time:</strong> <em>not calibrated</em>";
+                        ttRow.appendChild(editLink);
+                        ttRow.appendChild(calBtn);
+                    }
 
                     var editLink = document.createElement("a");
                     editLink.href = "#";
@@ -357,18 +362,97 @@
                         var secs = parseInt(newVal);
                         if (isNaN(secs) || secs < 0) { showToast("Enter a positive number of seconds.", "error"); return; }
                         window.MiOpenApi.postJson("/api/action", {
-                            action: "setTransitTime", id: freshDevice.id, value: secs
+                            action: "setTransitTime", deviceId: freshDevice.id, value: secs
                         }).then(function () {
                             transitSecs = secs;
                             freshDevice.transit_time_ms = secs * 1000;
-                            ttRow.innerHTML = secs > 0
-                                ? "<strong>Transit time:</strong> " + secs + " s"
-                                : "<strong>Transit time:</strong> <em>not calibrated</em>";
-                            ttRow.appendChild(editLink);
+                            renderTtRow();
                             showToast("Transit time saved.", "success");
                         }).catch(function (e) { showToast("Error: " + e.message, "error"); });
                     };
-                    ttRow.appendChild(editLink);
+
+                    // Calibration wizard
+                    var calBtn = document.createElement("button");
+                    calBtn.textContent = "Calibrate";
+                    calBtn.style.cssText = "margin-left:8px;font-size:.8em;padding:2px 8px;";
+                    var calPanel = null;
+                    var calWsHandler = null;
+
+                    function cleanupCal() {
+                        if (calWsHandler) {
+                            if (window._calWsHandlers) delete window._calWsHandlers[freshDevice.id];
+                            calWsHandler = null;
+                        }
+                        if (calPanel) { calPanel.remove(); calPanel = null; }
+                    }
+
+                    calBtn.onclick = function () {
+                        if (calPanel) return;
+                        calPanel = document.createElement("div");
+                        calPanel.style.cssText = "margin-top:10px;padding:10px;background:var(--color-bg,#f5f5f5);border-radius:6px;font-size:.9em;";
+                        calPanel.innerHTML = "<strong>Calibration Wizard</strong><br><em>The device will open, close, then open again to measure transit time.</em>";
+
+                        var stepMsg = document.createElement("p");
+                        stepMsg.style.cssText = "margin:8px 0;";
+                        stepMsg.textContent = "Ready to start.";
+                        calPanel.appendChild(stepMsg);
+
+                        var btns = document.createElement("div");
+                        btns.style.cssText = "display:flex;gap:8px;margin-top:8px;";
+
+                        var startBtn = document.createElement("button");
+                        startBtn.textContent = "Start";
+                        startBtn.onclick = function () {
+                            startBtn.disabled = true;
+                            stepMsg.textContent = "Starting…";
+                            window.MiOpenApi.postJson("/api/action", {
+                                action: "calibrate", deviceId: freshDevice.id
+                            }).catch(function (e) { stepMsg.textContent = "Error: " + e.message; });
+                        };
+                        var cancelBtn = document.createElement("button");
+                        cancelBtn.textContent = "Cancel";
+                        cancelBtn.onclick = function () {
+                            window.MiOpenApi.postJson("/api/action", { action: "cancelCalibration", deviceId: freshDevice.id }).catch(function(){});
+                            cleanupCal();
+                        };
+                        btns.appendChild(startBtn);
+                        btns.appendChild(cancelBtn);
+                        calPanel.appendChild(btns);
+                        rightPanel.appendChild(calPanel);
+
+                        // Listen for calibration WS events
+                        if (!window._calWsHandlers) window._calWsHandlers = {};
+                        calWsHandler = function (type, data) {
+                            if (data.id !== freshDevice.id) return;
+                            if (type === "calibration_progress") {
+                                var pos = data.position >= 0 ? " (" + data.position + "%)" : "";
+                                stepMsg.textContent = "Step " + data.step + "/3: " + data.message + pos;
+                            } else if (type === "calibration_done") {
+                                var secs = Math.round(data.transit_time_ms / 1000);
+                                transitSecs = secs;
+                                freshDevice.transit_time_ms = data.transit_time_ms;
+                                stepMsg.innerHTML = "✓ Done — transit time: <strong>" + secs + " s</strong>";
+                                startBtn.disabled = false;
+                                startBtn.textContent = "Done";
+                                startBtn.onclick = function () { cleanupCal(); renderTtRow(); };
+                                cancelBtn.remove();
+                            } else if (type === "calibration_failed") {
+                                stepMsg.textContent = "Failed: " + (data.reason || "unknown");
+                                startBtn.disabled = false;
+                                startBtn.textContent = "Retry";
+                                startBtn.onclick = function () {
+                                    startBtn.disabled = true;
+                                    stepMsg.textContent = "Restarting…";
+                                    window.MiOpenApi.postJson("/api/action", {
+                                        action: "calibrate", deviceId: freshDevice.id
+                                    }).catch(function (e) { stepMsg.textContent = "Error: " + e.message; });
+                                };
+                            }
+                        };
+                        window._calWsHandlers[freshDevice.id] = calWsHandler;
+                    };
+
+                    renderTtRow();
                     rightPanel.appendChild(ttRow);
                 }
             }
