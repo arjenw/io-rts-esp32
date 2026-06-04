@@ -139,9 +139,6 @@ ul#device-list li {
   position: relative;
   transition: background 0.5s ease;
 }
-ul#device-list li .btn {
-  margin: 1px auto;
-}
 ul#device-list span {
   padding: 5px 10px;
   text-align: center;
@@ -173,15 +170,6 @@ th {
   height: 40px;
   width: 40px;
   font-size: 0;
-}
-.btn.open {
-  background: url("../img/up.svg") no-repeat;
-}
-.btn.stop {
-  background: url("../img/stop.svg") no-repeat;
-}
-.btn.down {
-  background: url("../img/down.svg") no-repeat;
 }
 .btn.bg {
   background-color: var(--color-accent2);
@@ -379,60 +367,92 @@ header h1 {
     display: inline-block;
     letter-spacing: 0.02em;
 }
-.slider-row {
+/* ---- Device card — rebuilt styles ---- */
+.card-name {
+    font-weight: 600;
+    font-size: 0.9em;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 2px 28px 2px 4px;
+    color: #fff;
+}
+.card-badge {
+    font-size: 0.58em;
+    opacity: 0.75;
+    background: rgba(0,0,0,0.22);
+    border-radius: 4px;
+    padding: 1px 6px;
+    align-self: center;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+.card-btn-row {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    flex-wrap: nowrap;
+    margin-top: 2px;
+}
+.card-btn {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    background: rgba(0,0,0,0.28);
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 16px;
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 2px 4px;
-    width: 100%;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s;
 }
-.slider-label {
-    font-size: 0.7em;
+.card-btn:hover { background: rgba(0,0,0,0.45); }
+.card-fav {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    background: rgba(0,0,0,0.18);
+    border: none;
+    border-radius: 8px;
+    color: rgba(255,255,255,0.55);
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.card-fav:hover { background: rgba(0,0,0,0.35); }
+.card-fav.has-favorite { color: #ffd700; }
+.card-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 2px;
+}
+.card-slider-label {
+    font-size: 0.65em;
     min-width: 22px;
     flex-shrink: 0;
-    color: #fff;
-    opacity: 0.85;
+    color: rgba(255,255,255,0.75);
 }
-.device-slider {
+.card-slider {
     flex: 1;
     min-width: 0;
-    height: 4px;
-    accent-color: var(--color-accent3);
+    height: 8px;
+    accent-color: rgba(255,255,255,0.7);
     cursor: pointer;
+    touch-action: none;
 }
-ul#device-list li .btn-text {
-    margin: 1px auto;
-    padding: 6px 12px;
-    font-size: 13px;
-    width: fit-content;
-}
-ul#device-list li .btn-fav {
-    margin: 2px auto;
-    width: fit-content;
-}
-.btn-fav {
-    padding: 2px 10px;
-    font-size: 1.05em;
-    line-height: 1.5;
-    background: rgba(0,0,0,0.15);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    cursor: pointer;
-}
-.btn-fav:hover { background: var(--color-accent2); }
-.btn-fav.has-favorite { color: #ffd700; }
 .device-status-only {
     font-size: 0.8em;
     opacity: 0.7;
     text-align: center;
     padding: 4px 0;
-}
-.device-btn-row {
-    display: flex;
-    justify-content: center;
-    gap: 2px;
-    flex-wrap: wrap;
 }
 ul#device-list li.device.inactive {
     opacity: 0.55;
