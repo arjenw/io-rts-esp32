@@ -35,14 +35,26 @@
         app.logStatus(result.message || ("Action " + action + " sent."), "debug");
     }
 
-    function updateDeviceFill(deviceId, percent) {
+    function updateDeviceFill(deviceId, percent, inverted) {
         const deviceEl = document.querySelector('.device[data-id="' + deviceId + '"]');
         if (!deviceEl) return;
-        const fill = 100 - percent;
-        deviceEl.style.background = "linear-gradient(to top, var(--color-input) " +
-            fill + "%, var(--color-accent3) " + fill + "%)";
+        var fill = 100 - percent;
+        var lo   = Math.max(0, fill - 6);
+        var mid  = fill;
+        var hi   = Math.min(100, fill + 12);
+        var dir  = inverted ? "to bottom" : "to top";
+        deviceEl.style.background =
+            "linear-gradient(" + dir + ", " +
+            "var(--color-input) " + lo + "%, " +
+            "var(--color-gradient-mid) " + mid + "%, " +
+            "var(--color-accent3) " + hi + "%)";
         var slider = deviceEl.querySelector('input[data-slider="position"]');
         if (slider) slider.value = percent;
+    }
+
+    function updateDeviceState(deviceId, isStopped) {
+        var el = document.querySelector('.device[data-id="' + deviceId + '"]');
+        if (el) el.classList.toggle("moving", isStopped === false);
     }
 
     function createDeviceButton(label, className, onClick) {
@@ -373,12 +385,15 @@
                 }
 
                 listItem.appendChild(createDeviceButton(
-                    app.i18nText("button.edit", "edit"), "edit",
+                    "⋯", "menu",
                     function () { buildEditPopup(app, device, group); }
                 ));
 
                 deviceList.appendChild(listItem);
-                if (!device.inactive && device.position >= 0) updateDeviceFill(device.id, device.position);
+                if (!device.inactive && device.position >= 0) {
+                    updateDeviceFill(device.id, device.position, !!device.is_inverted);
+                }
+                updateDeviceState(device.id, device.is_stopped);
             });
 
             app.logStatus("Device list updated.", "info");
@@ -571,6 +586,7 @@
     function init(app) {
         app.fetchAndDisplayDevices = function () { return fetchAndDisplayDevices(app); };
         app.updateDeviceFill = updateDeviceFill;
+        app.updateDeviceState = updateDeviceState;
         app.pairingWizard = pairingWizard;
 
         var pairBtn = document.getElementById("pair-device-btn");
