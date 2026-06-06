@@ -374,14 +374,14 @@
         if (betaCheckbox && betaToggle) {
             var savedChannel = localStorage.getItem("updateChannel") || "stable";
             betaCheckbox.checked = savedChannel === "beta";
-            betaLabel.textContent = betaCheckbox.checked ? "Stable + Beta" : "Stable only";
+            betaLabel.textContent = betaCheckbox.checked ? "Include beta" : "Stable only";
             betaToggle.classList.toggle("on", betaCheckbox.checked);
 
             betaToggle.addEventListener("click", function () {
                 betaCheckbox.checked = !betaCheckbox.checked;
                 var channel = betaCheckbox.checked ? "beta" : "stable";
                 localStorage.setItem("updateChannel", channel);
-                betaLabel.textContent = betaCheckbox.checked ? "Stable + Beta" : "Stable only";
+                betaLabel.textContent = betaCheckbox.checked ? "Include beta" : "Stable only";
                 betaToggle.classList.toggle("on", betaCheckbox.checked);
             });
         }
