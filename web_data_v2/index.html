@@ -241,6 +241,14 @@
             <progress id="ota-progress" max="100" value="0" style="display:none;"></progress>
             <span id="ota-status" class="field-status"></span>
           </div>
+          <!-- Web UI upload -->
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+            <span class="row-label">Web UI Update</span>
+            <input type="file" id="ota-web-file" accept=".bin" class="s-input" style="padding:5px 10px;">
+            <button class="s-btn primary" id="ota-web-upload">Upload Web UI</button>
+            <progress id="ota-web-progress" max="100" value="0" style="display:none;"></progress>
+            <span id="ota-web-status" class="field-status"></span>
+          </div>
           <!-- Devices backup -->
           <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;">
             <span class="row-label" data-i18n="section.backup">Backup / Restore</span>

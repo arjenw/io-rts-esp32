@@ -239,12 +239,62 @@
         });
     }
 
+    function uploadWebUi(app) {
+        var file = document.getElementById("ota-web-file") && document.getElementById("ota-web-file").files[0];
+        var progress = document.getElementById("ota-web-progress");
+        var status = document.getElementById("ota-web-status");
+        var btn = document.getElementById("ota-web-upload");
+        var keyDisplay = document.getElementById("ota-key-display");
+        var key = keyDisplay ? keyDisplay.value.trim() : "";
+
+        function setErr(msg) { status.textContent = msg; status.style.color = "red"; btn.disabled = false; }
+
+        if (!file) { setErr("Please select a web UI .bin file."); return; }
+        if (!key)  { setErr("OTA key not loaded yet."); return; }
+
+        btn.disabled = true;
+        progress.style.display = "";
+        progress.value = 0;
+        status.textContent = "Uploading…";
+        status.style.color = "";
+
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/ota/web");
+        xhr.setRequestHeader("X-OTA-Key", key);
+        xhr.setRequestHeader("Content-Type", "application/octet-stream");
+
+        xhr.upload.onprogress = function (e) {
+            if (e.lengthComputable) progress.value = Math.round(e.loaded / e.total * 100);
+        };
+
+        xhr.onload = function () {
+            if (xhr.status === 200) {
+                progress.value = 100;
+                status.textContent = "Rebooting…";
+                status.style.color = "";
+                pollUntilOnline(app, Date.now() + POLL_TIMEOUT);
+            } else if (xhr.status === 401) {
+                setErr("Wrong OTA key (401 Unauthorized).");
+            } else {
+                setErr("Upload failed (" + xhr.status + "): " + (xhr.responseText || "unknown error"));
+            }
+        };
+
+        xhr.onerror = function () { setErr("Network error during upload."); };
+        xhr.send(file);
+    }
+
     function init(app) {
         fetchAndDisplayKey();
         initKeyModal();
 
         if (app.elements.otaProgress) {
             app.elements.otaProgress.style.display = "none";
+        }
+
+        var webUploadBtn = document.getElementById("ota-web-upload");
+        if (webUploadBtn) {
+            webUploadBtn.addEventListener("click", function () { uploadWebUi(app); });
         }
 
         app.uploadFirmware = function () { uploadFirmware(app); };
