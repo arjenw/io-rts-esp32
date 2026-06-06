@@ -9,6 +9,8 @@ jobs:
   build-release:
     name: Build & Release (Heltec)
     runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v6.0.1
     permissions:
       contents: write
 
@@ -18,17 +20,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up ESP-IDF v6.0.1
-        uses: espressif/esp-idf-ci-action@v1
-        with:
-          esp_idf_version: v6.0.1
-          target: esp32
-
       - name: Build firmware
-        run: idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.heltec" -DAPP_VERSION="${{ github.ref_name }}" build
+        run: |
+          . $IDF_PATH/export.sh
+          idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.heltec" -DAPP_VERSION="${{ github.ref_name }}" build
 
       - name: Prepare artifacts
         run: |
+          . $IDF_PATH/export.sh
           TAG="${{ github.ref_name }}"
           cp build/io-rts-esp32.bin "heltec-${TAG}-firmware.bin"
           cp build/web.bin          "heltec-${TAG}-web.bin"
