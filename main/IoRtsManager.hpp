@@ -77,6 +77,9 @@ namespace IoRts
         /// @return true if currently in passive mode
         bool isIoPassive() { return mIoPassive; }
 
+        /// @brief Returns true if MQTT broker is currently connected
+        bool GetMqttConnected() const;
+
     private:
         bool mIoPassive = false; // current configuration, initialized at boot
 

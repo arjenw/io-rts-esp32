@@ -59,8 +59,12 @@ namespace Helpers
         void OnNetworkConnected();
         /// @brief Called when network link drops — cancels any pending MQTT reconnect timer
         void OnNetworkDisconnected();
+        /// @brief Called on MQTT_EVENT_CONNECTED — marks broker as reachable
+        void OnMqttConnected();
         /// @brief Called on MQTT_EVENT_DISCONNECTED — schedules reconnect if network is up
         void OnMqttDisconnected();
+
+        bool IsMqttConnected() const { return mMqttConnected; }
 
     private:
         /// @brief Send controller device discovery message (reboot, config, management components)
@@ -71,6 +75,7 @@ namespace Helpers
 
         IoRts::IoRtsManager *mIoRtsManager;         // Pointer to IoRtsManager object
         bool mStarted;                              // true if client is started
+        bool mMqttConnected = false;                // true while broker connection is active
         bool mIsIoHomePassive;                      // true if IO Home is in passive mode
         std::string mTopicPrefix;                   // Topic prefix, initialized from configuration storage at boot (avoid to read it from storage everytime!)
         std::string mDiscoveryPrefix;               // Discovery prefix, initialized from configuration storage at boot (avoid to read it from storage everytime!)

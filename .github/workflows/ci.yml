@@ -14,9 +14,9 @@ jobs:
         with:
           node-version: '20'
       - name: Install ESLint
-        run: npm install --prefix web_data_v2
+        run: npm install
       - name: Run ESLint
-        run: npx --prefix web_data_v2 eslint ../web_data_v2/js/*.js --no-eslintrc -c .eslintrc.json
+        run: npx eslint web_data_v2/js/*.js --no-eslintrc -c .eslintrc.json
 
   static-analysis:
     name: C++ Static Analysis

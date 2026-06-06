@@ -13,4 +13,4 @@ endif()
 
 project(io-rts-esp32)
 
-littlefs_create_partition_image(web ${CMAKE_SOURCE_DIR}/web_data FLASH_IN_PROJECT)
+littlefs_create_partition_image(web ${CMAKE_SOURCE_DIR}/web_data_v2 FLASH_IN_PROJECT)

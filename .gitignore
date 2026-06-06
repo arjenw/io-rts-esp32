@@ -98,3 +98,5 @@ tools/console_probe.py
 
 # Local implementation prompts (kept out of repo)
 *-prompt.md
+node_modules
+package-lock.json

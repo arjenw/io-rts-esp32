@@ -407,6 +407,11 @@ namespace IoRts
         return mIoHome->GetSniffedKey();
     }
 
+    bool IoRtsManager::GetMqttConnected() const
+    {
+        return sMqttHelper != nullptr && sMqttHelper->IsMqttConnected();
+    }
+
     void IoRtsManager::InitializeIo()
     {
         // Initialize IO-HOMECONTROL
