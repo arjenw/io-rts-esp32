@@ -204,8 +204,10 @@
                     if (app.pairingWizard) app.pairingWizard.onPairFailed();
                 } else if (data.type === "remote_seen") {
                     if (app.pairingWizard) app.pairingWizard.onRemoteSeen(data.id);
+                    if (window.MiOpenRemotes) window.MiOpenRemotes.onRemoteSeen(data.id);
                 } else if (data.type === "remote_capture_timeout") {
                     if (app.pairingWizard) app.pairingWizard.onCaptureTimeout();
+                    if (window.MiOpenRemotes) window.MiOpenRemotes.onCaptureTimeout();
                 } else if (data.type === "io_key_captured") {
                     if (window.MiOpenSettings && window.MiOpenSettings.onKeyCaptured) {
                         window.MiOpenSettings.onKeyCaptured(data.key);
