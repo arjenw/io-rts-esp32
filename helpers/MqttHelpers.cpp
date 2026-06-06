@@ -109,6 +109,7 @@ namespace Helpers
         case MQTT_EVENT_CONNECTED:
         {
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
+            mqttHelper->OnMqttConnected();
             // send birth message
             std::string topic = mqttHelper->GetTopicPrefix() + MQTT_CLIENT_BIRTH_WILL_TOPIC;
             const char *data = MQTT_CLIENT_BIRTH_MSG.c_str();
@@ -576,23 +577,31 @@ namespace Helpers
         if (!MqttConfig::isEnabled() || mStarted)
             return ESP_ERR_NOT_ALLOWED;
         esp_err_t err = ESP_OK;
+        // Keep strings alive until esp_mqtt_client_init() consumes them
+        std::string brokerAddress = MqttConfig::GetBrokerAddress();
+        std::string clientId      = MqttConfig::GetClientId();
+        std::string username      = MqttConfig::GetClientUsername();
+        std::string password      = MqttConfig::GetClientPassword();
+        std::string lastWillTopic = MqttConfig::GetTopicPrefix() + MQTT_CLIENT_BIRTH_WILL_TOPIC;
+        std::string certificate;
         // Configure client
         esp_mqtt_client_config_t mqtt_cfg;
         memset(&mqtt_cfg, 0, sizeof(esp_mqtt_client_config_t));
-        mqtt_cfg.broker.address.hostname = MqttConfig::GetBrokerAddress().c_str();
+        mqtt_cfg.broker.address.hostname = brokerAddress.c_str();
         mqtt_cfg.broker.address.port = MqttConfig::GetBrokerPort();
         bool tls_enabled = MqttConfig::isTLSEnabled();
         mqtt_cfg.broker.address.transport = tls_enabled ? MQTT_TRANSPORT_OVER_SSL : MQTT_TRANSPORT_OVER_TCP;
         if (tls_enabled)
         {
-            mqtt_cfg.broker.verification.certificate = std::string(MQTT_CERTIFICATE_BEGIN + MqttConfig::GetBrokerCertificate() + MQTT_CERTIFICATE_END).c_str();
+            certificate = MQTT_CERTIFICATE_BEGIN + MqttConfig::GetBrokerCertificate() + MQTT_CERTIFICATE_END;
+            mqtt_cfg.broker.verification.certificate = certificate.c_str();
             mqtt_cfg.broker.verification.skip_cert_common_name_check = true;
         }
-        mqtt_cfg.credentials.client_id = MqttConfig::GetClientId().c_str();
-        mqtt_cfg.credentials.username = MqttConfig::GetClientUsername().c_str();
-        mqtt_cfg.credentials.authentication.password = MqttConfig::GetClientPassword().c_str();
+        mqtt_cfg.credentials.client_id = clientId.c_str();
+        mqtt_cfg.credentials.username = username.c_str();
+        mqtt_cfg.credentials.authentication.password = password.c_str();
         mqtt_cfg.session.protocol_ver = MQTT_PROTOCOL_V_3_1_1;
-        mqtt_cfg.session.last_will.topic = std::string(MqttConfig::GetTopicPrefix() + MQTT_CLIENT_BIRTH_WILL_TOPIC).c_str();
+        mqtt_cfg.session.last_will.topic = lastWillTopic.c_str();
         mqtt_cfg.session.last_will.msg = MQTT_CLIENT_WILL_MSG.c_str();
         mqtt_cfg.session.last_will.msg_len = MQTT_CLIENT_WILL_MSG.length();
         mqtt_cfg.session.last_will.qos = 1;
@@ -1521,8 +1530,14 @@ namespace Helpers
         ESP_LOGI(TAG, "Network down — cancelling MQTT reconnect timer");
         esp_timer_stop(mReconnectTimer);
     }
+    void MqttHelpers::OnMqttConnected()
+    {
+        mMqttConnected = true;
+    }
+
     void MqttHelpers::OnMqttDisconnected()
     {
+        mMqttConnected = false;
         if (!mStarted || mMqttClientHandle == nullptr || mReconnectTimer == nullptr)
             return;
         if (NetworkHelpers::isConnected())
