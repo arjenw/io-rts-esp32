@@ -573,6 +573,7 @@ static esp_err_t api_mqtt_get(httpd_req_t *req)
     cJSON_AddNumberToObject(obj, "port",      Config::MqttConfig::GetBrokerPort());
     cJSON_AddStringToObject(obj, "password",  Config::MqttConfig::GetClientPassword().c_str());
     cJSON_AddStringToObject(obj, "discovery", Config::MqttConfig::GetDiscoveryPrefix().c_str());
+    cJSON_AddBoolToObject(obj, "connected",   s_manager != nullptr && s_manager->GetMqttConnected());
     send_json(req, obj);
     return ESP_OK;
 }
@@ -946,6 +947,72 @@ static esp_err_t api_ota_post(httpd_req_t *req)
     }
 
     ESP_LOGI(TAG, "OTA: success, rebooting...");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"rebooting\"}");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return ESP_OK;
+}
+
+// ─── POST /api/ota/web ──────────────────────────────────────────────────────
+
+static esp_err_t api_ota_web_post(httpd_req_t *req)
+{
+    if (!ota_check_key(req)) {
+        httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized");
+        return ESP_OK;
+    }
+
+    if (req->content_len == 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty payload");
+        return ESP_OK;
+    }
+
+    const esp_partition_t *part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "web");
+    if (!part) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Web partition not found");
+        return ESP_OK;
+    }
+    ESP_LOGI(TAG, "OTA web: writing %d bytes to partition '%s'", (int)req->content_len, part->label);
+
+    esp_err_t err = esp_partition_erase_range(part, 0, part->size);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "OTA web: erase failed: %s", esp_err_to_name(err));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Erase failed");
+        return ESP_OK;
+    }
+
+    char buf[1024];
+    int total = 0;
+    int remaining = (int)req->content_len;
+    bool write_err = false;
+
+    while (remaining > 0) {
+        int to_recv = (remaining < (int)sizeof(buf)) ? remaining : (int)sizeof(buf);
+        int n = httpd_req_recv(req, buf, to_recv);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (n <= 0) {
+            ESP_LOGE(TAG, "OTA web: receive error at byte %d", total);
+            write_err = true;
+            break;
+        }
+        err = esp_partition_write(part, total, buf, n);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "OTA web: write failed at offset %d: %s", total, esp_err_to_name(err));
+            write_err = true;
+            break;
+        }
+        total += n;
+        remaining -= n;
+    }
+
+    if (write_err) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Write failed");
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "OTA web: success (%d bytes), rebooting...", total);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"status\":\"rebooting\"}");
     vTaskDelay(pdMS_TO_TICKS(500));
@@ -1580,6 +1647,7 @@ void web_server_start(void *ioRtsManager)
     reg("/api/upload/devices",    HTTP_POST, api_upload_devices);
     reg("/api/upload/remotes",    HTTP_POST, api_upload_remotes);
     reg("/api/ota",               HTTP_POST, api_ota_post);
+    reg("/api/ota/web",           HTTP_POST, api_ota_web_post);
     reg("/api/ota/key",           HTTP_GET,  api_ota_key_get);
     reg("/api/ota/key",           HTTP_POST, api_ota_key_post);
     reg("/api/reboot",            HTTP_POST, api_reboot_post);
