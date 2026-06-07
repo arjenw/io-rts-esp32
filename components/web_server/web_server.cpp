@@ -677,6 +677,33 @@ static esp_err_t api_mqtt_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// ─── Syslog identifier management ───────────────────────────────────────────
+
+#define SYSLOG_ID_LEN 8
+static char s_syslog_id[SYSLOG_ID_LEN + 1] = {};
+
+static void syslog_id_init(void)
+{
+    nvs_handle_t h;
+    if (nvs_open("syslog", NVS_READWRITE, &h) != ESP_OK) {
+        ESP_LOGE(TAG, "syslog_id: failed to open NVS");
+        return;
+    }
+    size_t len = sizeof(s_syslog_id);
+    esp_err_t err = nvs_get_str(h, "id", s_syslog_id, &len);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        uint32_t r = esp_random();
+        snprintf(s_syslog_id, sizeof(s_syslog_id), "%08" PRIx32, r);
+        nvs_set_str(h, "id", s_syslog_id);
+        nvs_commit(h);
+        ESP_LOGI(TAG, "syslog id (generated): %s", s_syslog_id);
+    } else if (err == ESP_OK) {
+        ESP_LOGI(TAG, "syslog id (loaded): %s", s_syslog_id);
+    }
+    nvs_close(h);
+    syslog_set_id(s_syslog_id);
+}
+
 // ─── OTA key management ─────────────────────────────────────────────────────
 
 #define OTA_KEY_LEN 32
@@ -1088,6 +1115,7 @@ static esp_err_t api_syslog_get(httpd_req_t *req)
     cJSON_AddNumberToObject(obj, "port",      Config::SyslogConfig::GetPort());
     cJSON_AddNumberToObject(obj, "facility",  Config::SyslogConfig::GetFacility());
     cJSON_AddNumberToObject(obj, "min_level", Config::SyslogConfig::GetMinLevel());
+    cJSON_AddStringToObject(obj, "id",        s_syslog_id);
     send_json(req, obj);
     return ESP_OK;
 }
@@ -1111,12 +1139,23 @@ static esp_err_t api_syslog_post(httpd_req_t *req)
     cJSON *jPort     = cJSON_GetObjectItem(json, "port");
     cJSON *jFacility = cJSON_GetObjectItem(json, "facility");
     cJSON *jMinLevel = cJSON_GetObjectItem(json, "min_level");
+    cJSON *jId       = cJSON_GetObjectItem(json, "id");
 
     if (cJSON_IsBool(jEnabled))   Config::SyslogConfig::SetEnabled(cJSON_IsTrue(jEnabled));
     if (cJSON_IsString(jServer))  Config::SyslogConfig::SetServer(jServer->valuestring);
     if (cJSON_IsNumber(jPort))    Config::SyslogConfig::SetPort((uint16_t)jPort->valuedouble);
     if (cJSON_IsNumber(jFacility)) Config::SyslogConfig::SetFacility((uint8_t)jFacility->valuedouble);
     if (cJSON_IsNumber(jMinLevel)) Config::SyslogConfig::SetMinLevel((uint8_t)jMinLevel->valuedouble);
+    if (cJSON_IsString(jId) && jId->valuestring[0]) {
+        snprintf(s_syslog_id, sizeof(s_syslog_id), "%s", jId->valuestring);
+        nvs_handle_t h;
+        if (nvs_open("syslog", NVS_READWRITE, &h) == ESP_OK) {
+            nvs_set_str(h, "id", s_syslog_id);
+            nvs_commit(h);
+            nvs_close(h);
+        }
+        syslog_set_id(s_syslog_id);
+    }
 
     cJSON_Delete(json);
     syslog_apply_config();
@@ -2016,6 +2055,7 @@ void web_server_start(void *ioRtsManager)
     s_orig_vprintf = esp_log_set_vprintf(web_log_vprintf);
 
     syslog_init(CONFIG_IP_LAYER_HOSTNAME);
+    syslog_id_init();
     ota_key_init();
 
     ESP_LOGI(TAG, "HTTP server started");

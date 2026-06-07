@@ -236,6 +236,10 @@
                 </select>
               </div>
             </div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:11px;color:var(--text3);">Device identifier (shown in log)</label>
+              <input type="text" id="syslog-id" class="s-input" placeholder="auto-generated" maxlength="15">
+            </div>
             <button class="s-btn primary" id="syslog-update">Save Syslog</button>
           </div>
         </div>
@@ -554,6 +558,7 @@
       <div style="display:flex;gap:8px;">
         <button id="arm-btn-capture" class="btn-danger-confirm" style="flex:1;">Capture</button>
         <button id="arm-btn-manual"  class="btn-ghost"          style="flex:1;">Enter manually</button>
+        <button id="arm-btn-cancel"  class="btn-ghost"          style="flex:1;">Cancel</button>
       </div>
     </div>
 
