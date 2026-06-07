@@ -31,10 +31,10 @@ jobs:
           TAG="${{ github.ref_name }}"
           cp build/io-rts-esp32.bin "heltec-${TAG}-firmware.bin"
           cp build/web.bin          "heltec-${TAG}-web.bin"
-          python -m esptool --chip esp32s3 merge-bin \
+          python -m esptool --chip esp32 merge-bin \
             --output "heltec-${TAG}-full.bin" \
             --target-offset 0x0 \
-            0x0000   build/bootloader/bootloader.bin \
+            0x1000   build/bootloader/bootloader.bin \
             0xf000   build/partition_table/partition-table.bin \
             0x375000 build/ota_data_initial.bin \
             0x10000  build/io-rts-esp32.bin \
