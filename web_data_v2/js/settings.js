@@ -215,6 +215,7 @@
             const confirm = app.elements.accessPasswordConfirm.value;
 
             if (pwd !== confirm) { showToast("Passwords do not match.", "error"); return; }
+            if (pwd.length > 0 && pwd.length < 8) { showToast("Password must be at least 8 characters (required for WPA2).", "error"); return; }
             if (pwd.length > 32) { showToast("Password too long (max 32 characters).", "error"); return; }
 
             try {

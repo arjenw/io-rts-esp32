@@ -1293,6 +1293,11 @@ static esp_err_t api_misc_password_post(httpd_req_t *req)
     }
 
     std::string pwd = jPwd->valuestring;
+    if (!pwd.empty() && pwd.length() < 8) {
+        cJSON_Delete(json);
+        send_result(req, false, "Password must be at least 8 characters");
+        return ESP_OK;
+    }
     if (pwd.length() > Config::PASSWORD_MAXSIZE) {
         cJSON_Delete(json);
         send_result(req, false, "Password too long (max 32 characters)");
