@@ -35,9 +35,10 @@
         app.logStatus(result.message || ("Action " + action + " sent."), "debug");
     }
 
-    function updateDeviceFill(deviceId, percent, inverted) {
+    function updateDeviceFill(deviceId, percent, inverted, estimated) {
         const deviceEl = document.querySelector('.device[data-id="' + deviceId + '"]');
         if (!deviceEl) return;
+        deviceEl.classList.toggle("estimating", !!estimated);
         var fill = 100 - percent;
         var lo   = Math.max(0, fill - 6);
         var mid  = fill;

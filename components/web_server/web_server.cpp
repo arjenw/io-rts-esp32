@@ -1963,6 +1963,128 @@ static esp_err_t api_pair_status_get(httpd_req_t *req)
     return ESP_OK;
 }
 
+// ─── Key learn (device-side receiver of TaHoma/CK key share) ────────────────
+
+static bool s_learn_active = false;
+
+static void learn_task(void *)
+{
+    ESP_LOGI(TAG, "Key learn task started — waiting for controller");
+    const int MAX_ATTEMPTS = 60; // 60 × ~2 s ≈ 120 s window
+    std::string key;
+    for (int attempt = 0; attempt < MAX_ATTEMPTS && s_learn_active; attempt++)
+    {
+        key = s_manager->mIoHome->LearnKeyFromController();
+        if (!key.empty()) break;
+        if ((attempt % 5) == 4) {
+            int remaining_s = (MAX_ATTEMPTS - attempt - 1) * 2;
+            char buf[72];
+            snprintf(buf, sizeof(buf), "{\"type\":\"learn_active\",\"remaining_s\":%d}", remaining_s);
+            web_server_broadcast_message(buf);
+        }
+    }
+    s_learn_active = false;
+    if (key.empty()) {
+        ESP_LOGW(TAG, "Key learn timed out");
+        web_server_broadcast_message("{\"type\":\"learn_failed\"}");
+    } else {
+        char buf[80];
+        snprintf(buf, sizeof(buf), "{\"type\":\"learn_key\",\"key\":\"%s\"}", key.c_str());
+        web_server_broadcast_message(buf);
+    }
+    vTaskDelete(nullptr);
+}
+
+static esp_err_t api_learn_start_post(httpd_req_t *req)
+{
+    if (s_learn_active) {
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"status\":\"busy\"}");
+        return ESP_OK;
+    }
+    s_learn_active = true;
+    xTaskCreate(learn_task, "learn_task", 4096, nullptr, 5, nullptr);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"started\"}");
+    return ESP_OK;
+}
+
+static esp_err_t api_learn_stop_post(httpd_req_t *req)
+{
+    s_learn_active = false;
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"stopped\"}");
+    return ESP_OK;
+}
+
+static esp_err_t api_learn_status_get(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, s_learn_active ? "{\"active\":true}" : "{\"active\":false}");
+    return ESP_OK;
+}
+
+// ─── Pair as device (pretend to be a new actuator so TaHoma submits the key) ─
+
+static bool s_pair_device_active = false;
+
+static void pair_device_task(void *)
+{
+    ESP_LOGI(TAG, "Pair-as-device task started — waiting for TaHoma broadcast CMD 28");
+    const int MAX_ATTEMPTS = 60; // 60 × ~2 s ≈ 120 s window
+    std::string key;
+    for (int attempt = 0; attempt < MAX_ATTEMPTS && s_pair_device_active; attempt++)
+    {
+        key = s_manager->mIoHome->PairAsDevice();
+        if (!key.empty()) break;
+        if ((attempt % 5) == 4) {
+            int remaining_s = (MAX_ATTEMPTS - attempt - 1) * 2;
+            char buf[80];
+            snprintf(buf, sizeof(buf), "{\"type\":\"pair_device_active\",\"remaining_s\":%d}", remaining_s);
+            web_server_broadcast_message(buf);
+        }
+    }
+    s_pair_device_active = false;
+    if (key.empty()) {
+        ESP_LOGW(TAG, "Pair-as-device timed out");
+        web_server_broadcast_message("{\"type\":\"pair_device_failed\"}");
+    } else {
+        char buf[80];
+        snprintf(buf, sizeof(buf), "{\"type\":\"pair_device_key\",\"key\":\"%s\"}", key.c_str());
+        web_server_broadcast_message(buf);
+    }
+    vTaskDelete(nullptr);
+}
+
+static esp_err_t api_pair_device_start_post(httpd_req_t *req)
+{
+    if (s_pair_device_active) {
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"status\":\"busy\"}");
+        return ESP_OK;
+    }
+    s_pair_device_active = true;
+    xTaskCreate(pair_device_task, "pair_dev_task", 4096, nullptr, 5, nullptr);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"started\"}");
+    return ESP_OK;
+}
+
+static esp_err_t api_pair_device_stop_post(httpd_req_t *req)
+{
+    s_pair_device_active = false;
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"stopped\"}");
+    return ESP_OK;
+}
+
+static esp_err_t api_pair_device_status_get(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, s_pair_device_active ? "{\"active\":true}" : "{\"active\":false}");
+    return ESP_OK;
+}
+
 // ─── Remote capture ─────────────────────────────────────────────────────────
 
 #define REMOTE_CAPTURE_TIMEOUT_MS 30000
@@ -2219,6 +2341,12 @@ void web_server_start(void *ioRtsManager)
     reg("/api/upload/web*",       HTTP_POST, api_upload_web_post);
     reg("/api/pair/start",        HTTP_POST, api_pair_start_post);
     reg("/api/pair/status",       HTTP_GET,  api_pair_status_get);
+    reg("/api/learn/start",              HTTP_POST, api_learn_start_post);
+    reg("/api/learn/stop",               HTTP_POST, api_learn_stop_post);
+    reg("/api/learn/status",             HTTP_GET,  api_learn_status_get);
+    reg("/api/pair-device/start",        HTTP_POST, api_pair_device_start_post);
+    reg("/api/pair-device/stop",         HTTP_POST, api_pair_device_stop_post);
+    reg("/api/pair-device/status",       HTTP_GET,  api_pair_device_status_get);
     reg("/api/remote/capture/start",  HTTP_POST, api_capture_start_post);
     reg("/api/remote/capture/cancel", HTTP_POST, api_capture_cancel_post);
 

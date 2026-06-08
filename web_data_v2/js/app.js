@@ -181,7 +181,7 @@
                     app.logStatus(data.message, data.level || "debug");
                 } else if (data.type === "position") {
                     var cached = (app.state.devicesCache || []).find(function (d) { return d.id === data.id; });
-                    app.updateDeviceFill(data.id, data.position, cached ? !!cached.is_inverted : false);
+                    app.updateDeviceFill(data.id, data.position, cached ? !!cached.is_inverted : false, !!data.estimated);
                     app.updateDeviceState(data.id, data.is_stopped);
                     if (data.is_stopped === false) {
                         app.state.movingSet.add(data.id);
@@ -213,6 +213,30 @@
                 } else if (data.type === "io_key_captured") {
                     if (window.MiOpenSettings && window.MiOpenSettings.onKeyCaptured) {
                         window.MiOpenSettings.onKeyCaptured(data.key);
+                    }
+                } else if (data.type === "learn_active") {
+                    if (window.MiOpenSettings && window.MiOpenSettings.onLearnActive) {
+                        window.MiOpenSettings.onLearnActive(data.remaining_s);
+                    }
+                } else if (data.type === "learn_failed") {
+                    if (window.MiOpenSettings && window.MiOpenSettings.onLearnFailed) {
+                        window.MiOpenSettings.onLearnFailed();
+                    }
+                } else if (data.type === "learn_key") {
+                    if (window.MiOpenSettings && window.MiOpenSettings.onLearnKey) {
+                        window.MiOpenSettings.onLearnKey(data.key);
+                    }
+                } else if (data.type === "pair_device_active") {
+                    if (window.MiOpenSettings && window.MiOpenSettings.onPairDeviceActive) {
+                        window.MiOpenSettings.onPairDeviceActive(data.remaining_s);
+                    }
+                } else if (data.type === "pair_device_failed") {
+                    if (window.MiOpenSettings && window.MiOpenSettings.onPairDeviceFailed) {
+                        window.MiOpenSettings.onPairDeviceFailed();
+                    }
+                } else if (data.type === "pair_device_key") {
+                    if (window.MiOpenSettings && window.MiOpenSettings.onPairDeviceKey) {
+                        window.MiOpenSettings.onPairDeviceKey(data.key);
                     }
                 }
             } catch (e) { /* ignore parse errors */ }

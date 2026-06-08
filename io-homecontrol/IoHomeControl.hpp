@@ -146,6 +146,17 @@ namespace iohome
     /// @brief Start device discovery and pair any discovered device
     bool DiscoverAndPairDevice();
 
+    /// @brief Listen for a controller (e.g. TaHoma/Connectivity Kit) initiating key sharing
+    /// and complete the device-side handshake to receive the system key.
+    /// Returns the received key as a 32-char hex string on success, empty string on failure/timeout.
+    std::string LearnKeyFromController();
+
+    /// @brief Pretend to be a new 2W actuator waiting to be paired.
+    /// TaHoma/CK in "add device" mode sends CMD 28 to the broadcast address (0x00003B).
+    /// We respond as a ROLLER_SHUTTER device and complete the full key exchange to obtain the system key.
+    /// Returns the received key as a 32-char hex string on success, empty string on failure/timeout.
+    std::string PairAsDevice();
+
     /// @brief Set position of an actuator (e.g., blind, shutter)
     /// @param deviceID Device ID (6 characters as hex representation of the 3 bytes, eg "112233")
     /// @param position Position value (0 is open / 0% closed / light on / switch on, 100 is 100% closed / light off / switch off)

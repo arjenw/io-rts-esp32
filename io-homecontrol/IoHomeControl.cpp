@@ -10,6 +10,7 @@
 #include "oled_display.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
+#include "esp_random.h"
 #include "freertos/task.h"
 
 #include <stdio.h>
@@ -960,6 +961,258 @@ namespace iohome
       IO_LOGE("DiscoverAndPairDevice: failed to take mutex!");
       return false;
     }
+  }
+
+  std::string IoHomeControl::LearnKeyFromController()
+  {
+    if (!mInitialized || !mReceiving || mPassiveMode)
+    {
+      IO_LOGE("LearnKeyFromController: invalid state!");
+      return "";
+    }
+    if (!xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
+    {
+      IO_LOGE("LearnKeyFromController: failed to take mutex!");
+      return "";
+    }
+
+    std::string result;
+    IoFrame response;
+    RxFrameQueueItem rxItem;
+
+    // Step 1: wait for CMD 0x28 from any controller
+    if (!xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_DISCOVERY_RESPONSE_WAIT_TICKS)
+        || rxItem.frame.command_id != CMD_DISCOVER_REQUEST)
+    {
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    ESP_LOGI(TAG, "LearnKeyFromController: CMD 28 from %s", buffToHexString(NODE_ID_SIZE, rxItem.frame.src_node).c_str());
+
+    // Step 2: respond with CMD 0x29 using our own node ID (controller-to-controller share)
+    IoFrame disc_resp;
+    if (!create_discovery_response(disc_resp, mOwnNodeId, rxItem.frame.src_node)
+        || !TransmitFrame(disc_resp, rxItem.frequency, SHORT_PREAMBLE_LENGTH))
+    {
+      ESP_LOGE(TAG, "LearnKeyFromController: failed to send CMD 29");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    ESP_LOGI(TAG, "LearnKeyFromController: CMD 29 sent");
+
+    // Step 3: wait for CMD 0x2C (discovery confirmation from controller)
+    if (!xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS)
+        || rxItem.frame.command_id != CMD_DISCOVER_CONFIRMATION)
+    {
+      ESP_LOGE(TAG, "LearnKeyFromController: no CMD 2C received");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    ESP_LOGI(TAG, "LearnKeyFromController: CMD 2C received — sending CMD 2D");
+
+    // Step 4: reply with CMD 0x2D (discovery confirmation ack)
+    IoFrame conf_ack;
+    if (!create_discovery_confirmation_ack(conf_ack, mOwnNodeId, rxItem.frame.src_node)
+        || !TransmitFrame(conf_ack, rxItem.frequency, SHORT_PREAMBLE_LENGTH))
+    {
+      ESP_LOGE(TAG, "LearnKeyFromController: failed to send CMD 2D");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+
+    // Step 5: wait for CMD 0x31 (key init transfer)
+    if (!xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS)
+        || rxItem.frame.command_id != CMD_KEY_INIT_TRANSFER)
+    {
+      ESP_LOGE(TAG, "LearnKeyFromController: no CMD 31 received");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    ESP_LOGI(TAG, "LearnKeyFromController: CMD 31 received");
+    IoFrame key_init_frame = rxItem.frame;
+    uint8_t controller_node[NODE_ID_SIZE];
+    memcpy(controller_node, rxItem.frame.src_node, NODE_ID_SIZE);
+
+    // Step 6: wait for CMD 0x3C (challenge from controller)
+    RxFrameQueueItem challenge_item;
+    if (!xQueueReceive(sRxIoQueue, &challenge_item, RECEIVED_IO_TREATMENT_WAIT_TICKS)
+        || challenge_item.frame.command_id != CMD_CHALLENGE_REQUEST
+        || challenge_item.frame.data_len != HMAC_SIZE)
+    {
+      ESP_LOGE(TAG, "LearnKeyFromController: no CMD 3C received");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    ESP_LOGI(TAG, "LearnKeyFromController: CMD 3C received — sending CMD 32 wait");
+
+    // Step 7: wait for CMD 0x32 (encrypted key)
+    RxFrameQueueItem key_item;
+    if (!xQueueReceive(sRxIoQueue, &key_item, RECEIVED_IO_TREATMENT_WAIT_TICKS)
+        || key_item.frame.command_id != CMD_KEY_TRANSFER
+        || key_item.frame.data_len != AES_KEY_SIZE)
+    {
+      ESP_LOGE(TAG, "LearnKeyFromController: no CMD 32 received");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    ESP_LOGI(TAG, "LearnKeyFromController: CMD 32 received — decrypting key");
+
+    // Step 8: decrypt the key
+    uint8_t decrypted_key[AES_KEY_SIZE];
+    if (!iohome::crypto::crypt_2w_key(&key_init_frame.command_id, 1,
+                                       challenge_item.frame.data,
+                                       key_item.frame.data, decrypted_key))
+    {
+      ESP_LOGE(TAG, "LearnKeyFromController: key decryption failed");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    result = buffToHexString(AES_KEY_SIZE, decrypted_key);
+    ESP_LOGI(TAG, "LearnKeyFromController: key received: %s", result.c_str());
+
+    // Step 9: send CMD 0x33 (key transfer confirmation)
+    IoFrame confirm;
+    if (create_key_transfer_confirmation(confirm, mOwnNodeId, controller_node))
+      TransmitFrame(confirm, key_item.frequency, SHORT_PREAMBLE_LENGTH);
+    ESP_LOGI(TAG, "LearnKeyFromController: CMD 33 sent — complete");
+
+    xSemaphoreGive(sMutex);
+    return result;
+  }
+
+  std::string IoHomeControl::PairAsDevice()
+  {
+    if (!mInitialized || !mReceiving || mPassiveMode)
+    {
+      IO_LOGE("PairAsDevice: invalid state!");
+      return "";
+    }
+    if (!xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
+    {
+      IO_LOGE("PairAsDevice: failed to take mutex!");
+      return "";
+    }
+
+    // Generate a random node ID for this session — a real device has a unique factory ID
+    uint8_t fakeNodeId[NODE_ID_SIZE];
+    esp_fill_random(fakeNodeId, NODE_ID_SIZE);
+    ESP_LOGI(TAG, "PairAsDevice: using random node ID %s", buffToHexString(NODE_ID_SIZE, fakeNodeId).c_str());
+
+    std::string result;
+    RxFrameQueueItem rxItem;
+
+    // Step 1: wait for CMD 0x28 broadcast from TaHoma in "add device" mode
+    if (!xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_DISCOVERY_RESPONSE_WAIT_TICKS)
+        || rxItem.frame.command_id != CMD_DISCOVER_REQUEST)
+    {
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+
+    // Only accept CMD 28 addressed to broadcast (0x00003B) or directly to our fake ID
+    bool to_broadcast = (memcmp(rxItem.frame.dest_node, BROADCAST_DISCOVER_ADDRESS, NODE_ID_SIZE) == 0);
+    bool to_us        = (memcmp(rxItem.frame.dest_node, fakeNodeId, NODE_ID_SIZE) == 0);
+    if (!to_broadcast && !to_us)
+    {
+      ESP_LOGW(TAG, "PairAsDevice: CMD 28 not for broadcast — ignoring (dst %s)",
+               buffToHexString(NODE_ID_SIZE, rxItem.frame.dest_node).c_str());
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    ESP_LOGI(TAG, "PairAsDevice: CMD 28 %s from %s",
+             to_broadcast ? "broadcast" : "direct",
+             buffToHexString(NODE_ID_SIZE, rxItem.frame.src_node).c_str());
+
+    // Step 2: respond with CMD 0x29 using random node ID, advertising as a roller shutter
+    IoFrame disc_resp;
+    if (!create_discovery_response(disc_resp, fakeNodeId, rxItem.frame.src_node, static_cast<uint8_t>(DeviceType::ROLLER_SHUTTER))
+        || !TransmitFrame(disc_resp, rxItem.frequency, SHORT_PREAMBLE_LENGTH))
+    {
+      ESP_LOGE(TAG, "PairAsDevice: failed to send CMD 29");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    ESP_LOGI(TAG, "PairAsDevice: CMD 29 sent (as %s ROLLER_SHUTTER)",
+             buffToHexString(NODE_ID_SIZE, fakeNodeId).c_str());
+
+    // Step 3: wait for CMD 0x2C (discovery confirmation)
+    if (!xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS)
+        || rxItem.frame.command_id != CMD_DISCOVER_CONFIRMATION)
+    {
+      ESP_LOGE(TAG, "PairAsDevice: no CMD 2C received");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    ESP_LOGI(TAG, "PairAsDevice: CMD 2C received — sending CMD 2D");
+
+    // Step 4: reply with CMD 0x2D
+    IoFrame conf_ack;
+    if (!create_discovery_confirmation_ack(conf_ack, fakeNodeId, rxItem.frame.src_node)
+        || !TransmitFrame(conf_ack, rxItem.frequency, SHORT_PREAMBLE_LENGTH))
+    {
+      ESP_LOGE(TAG, "PairAsDevice: failed to send CMD 2D");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+
+    // Step 5: wait for CMD 0x31 (key init transfer)
+    if (!xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS)
+        || rxItem.frame.command_id != CMD_KEY_INIT_TRANSFER)
+    {
+      ESP_LOGE(TAG, "PairAsDevice: no CMD 31 received");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    ESP_LOGI(TAG, "PairAsDevice: CMD 31 received");
+    IoFrame key_init_frame = rxItem.frame;
+    uint8_t controller_node[NODE_ID_SIZE];
+    memcpy(controller_node, rxItem.frame.src_node, NODE_ID_SIZE);
+
+    // Step 6: wait for CMD 0x3C (challenge)
+    RxFrameQueueItem challenge_item;
+    if (!xQueueReceive(sRxIoQueue, &challenge_item, RECEIVED_IO_TREATMENT_WAIT_TICKS)
+        || challenge_item.frame.command_id != CMD_CHALLENGE_REQUEST
+        || challenge_item.frame.data_len != HMAC_SIZE)
+    {
+      ESP_LOGE(TAG, "PairAsDevice: no CMD 3C received");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    ESP_LOGI(TAG, "PairAsDevice: CMD 3C received — waiting for CMD 32");
+
+    // Step 7: wait for CMD 0x32 (encrypted key)
+    RxFrameQueueItem key_item;
+    if (!xQueueReceive(sRxIoQueue, &key_item, RECEIVED_IO_TREATMENT_WAIT_TICKS)
+        || key_item.frame.command_id != CMD_KEY_TRANSFER
+        || key_item.frame.data_len != AES_KEY_SIZE)
+    {
+      ESP_LOGE(TAG, "PairAsDevice: no CMD 32 received");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    ESP_LOGI(TAG, "PairAsDevice: CMD 32 received — decrypting key");
+
+    // Step 8: decrypt the key
+    uint8_t decrypted_key[AES_KEY_SIZE];
+    if (!iohome::crypto::crypt_2w_key(&key_init_frame.command_id, 1,
+                                       challenge_item.frame.data,
+                                       key_item.frame.data, decrypted_key))
+    {
+      ESP_LOGE(TAG, "PairAsDevice: key decryption failed");
+      xSemaphoreGive(sMutex);
+      return "";
+    }
+    result = buffToHexString(AES_KEY_SIZE, decrypted_key);
+    ESP_LOGI(TAG, "PairAsDevice: key received: %s", result.c_str());
+
+    // Step 9: send CMD 0x33 (key transfer confirmation)
+    IoFrame confirm;
+    if (create_key_transfer_confirmation(confirm, fakeNodeId, controller_node))
+      TransmitFrame(confirm, key_item.frequency, SHORT_PREAMBLE_LENGTH);
+    ESP_LOGI(TAG, "PairAsDevice: CMD 33 sent — complete");
+
+    xSemaphoreGive(sMutex);
+    return result;
   }
 
   bool IoHomeControl::SetDevicePosition(const std::string &deviceID, uint8_t position, bool quiet)

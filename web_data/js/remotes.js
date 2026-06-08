@@ -128,7 +128,7 @@
                 showInput: true,
                 showTiming: true,
                 btnShowDelete: false,
-                btnShowCancel: false,
+                btnShowCancel: true,
                 timingLabel: app.i18nText("popup.remote_name_label", "Remote Name:"),
                 onSave: async function (addr, newName) {
                     const id = addr.trim().toUpperCase();

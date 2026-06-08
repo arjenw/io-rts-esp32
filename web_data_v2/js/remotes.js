@@ -228,6 +228,7 @@
             showStep("arm-step-capture");
             startCapture();
         });
+        document.getElementById("arm-btn-cancel").addEventListener("click", closeWizard);
         document.getElementById("arm-btn-manual").addEventListener("click", function () {
             document.getElementById("arm-manual-input").value = "";
             document.getElementById("arm-manual-error").textContent = "";

@@ -317,6 +317,8 @@
               <button class="s-btn" id="io-key-show">Show</button>
               <button class="s-btn" id="io-key-edit">Edit</button>
               <button class="s-btn" id="io-key-sniff">Sniff</button>
+              <button class="s-btn" id="io-key-learn">Learn</button>
+              <button class="s-btn" id="io-key-pair-device">Pair</button>
             </div>
             <span class="field-status" id="io-key-status"></span>
           </div>
@@ -600,6 +602,50 @@
       <button id="io-sniff-retry"   type="button" class="btn-ghost"         style="display:none;">Retry</button>
       <button id="io-sniff-start"   class="btn-danger-confirm">Start Listening</button>
       <button id="io-sniff-use-key" class="btn-danger-confirm" style="display:none;">Use This Key</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── KEY LEARN MODAL ── -->
+<div id="io-key-learn-modal" class="key-modal">
+  <div class="key-modal-inner">
+    <h3>Learn Key from TaHoma / Connectivity Kit</h3>
+    <p class="key-modal-warning-text">Trigger "Share" or "Add secondary controller" in the Somfy app. This device will respond as a receiver and extract the system key.</p>
+    <div id="io-learn-countdown-row" style="display:none;margin:8px 0;font-size:13px;">
+      <span>Listening… </span><strong id="io-learn-countdown"></strong><span> s remaining</span>
+    </div>
+    <div id="io-learn-result-row" style="display:none;margin:8px 0;">
+      <span style="font-size:12px;color:var(--text-secondary);">Received key:</span>
+      <div style="font-family:var(--mono);word-break:break-all;margin:4px 0;font-size:12px;" id="io-learn-captured-key"></div>
+    </div>
+    <p id="io-learn-status" class="key-modal-status"></p>
+    <div class="key-modal-actions" style="margin-top:12px;">
+      <button id="io-learn-cancel"  type="button" class="btn-ghost">Cancel</button>
+      <button id="io-learn-retry"   type="button" class="btn-ghost" style="display:none;">Retry</button>
+      <button id="io-learn-start"   class="btn-danger-confirm">Start Listening</button>
+      <button id="io-learn-use-key" class="btn-danger-confirm" style="display:none;">Use This Key</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── PAIR AS DEVICE MODAL ── -->
+<div id="io-key-pair-device-modal" class="key-modal">
+  <div class="key-modal-inner">
+    <h3>Pair as Device (receive key from TaHoma)</h3>
+    <p class="key-modal-warning-text">In the Somfy app, start "Add device" / "Add actuator" and put TaHoma into pairing mode. This device will pretend to be a new roller shutter and receive the system key during the handshake.</p>
+    <div id="io-pair-device-countdown-row" style="display:none;margin:8px 0;font-size:13px;">
+      <span>Listening for pairing broadcast… </span><strong id="io-pair-device-countdown"></strong><span> s remaining</span>
+    </div>
+    <div id="io-pair-device-result-row" style="display:none;margin:8px 0;">
+      <span style="font-size:12px;color:var(--text-secondary);">Received key:</span>
+      <div style="font-family:var(--mono);word-break:break-all;margin:4px 0;font-size:12px;" id="io-pair-device-captured-key"></div>
+    </div>
+    <p id="io-pair-device-status" class="key-modal-status"></p>
+    <div class="key-modal-actions" style="margin-top:12px;">
+      <button id="io-pair-device-cancel"  type="button" class="btn-ghost">Cancel</button>
+      <button id="io-pair-device-retry"   type="button" class="btn-ghost" style="display:none;">Retry</button>
+      <button id="io-pair-device-start"   class="btn-danger-confirm">Start Listening</button>
+      <button id="io-pair-device-use-key" class="btn-danger-confirm" style="display:none;">Use This Key</button>
     </div>
   </div>
 </div>

@@ -200,7 +200,7 @@
                     app.logStatus(data.message, data.level || "debug");
                 } else if (data.type === "position") {
                     var cached = (app.state.devicesCache || []).find(function (d) { return d.id === data.id; });
-                    app.updateDeviceFill(data.id, data.position, cached ? !!cached.is_inverted : false);
+                    app.updateDeviceFill(data.id, data.position, cached ? !!cached.is_inverted : false, !!data.estimated);
                     app.updateDeviceState(data.id, data.is_stopped);
                 } else if (data.type === "init") {
                     app.fetchAndDisplayDevices();

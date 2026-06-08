@@ -497,6 +497,8 @@
         document.getElementById("io-sniff-retry").addEventListener("click", function () { startSniff(app); });
         document.getElementById("io-sniff-use-key").addEventListener("click", function () { useSniffedKey(app); });
 
+        initLearnKey(app);
+        initPairDeviceKey(app);
         loadIoKey(app);
     }
 
@@ -678,7 +680,205 @@
         document.getElementById("io-sniff-use-key").style.display = "";
     }
 
-    window.MiOpenSettings = { init: init, onKeyCaptured: onKeyCaptured };
+    // ── IO Key Learn (receive key from TaHoma / Connectivity Kit) ────────────
+
+    let learnCountdownTimer = null;
+    let learnSecondsLeft = 0;
+
+    function resetLearnModal() {
+        if (learnCountdownTimer) { clearInterval(learnCountdownTimer); learnCountdownTimer = null; }
+        document.getElementById("io-learn-countdown-row").style.display = "none";
+        document.getElementById("io-learn-result-row").style.display = "none";
+        document.getElementById("io-learn-status").textContent = "";
+        document.getElementById("io-learn-start").style.display = "";
+        document.getElementById("io-learn-retry").style.display = "none";
+        document.getElementById("io-learn-use-key").style.display = "none";
+    }
+
+    async function cancelLearn() {
+        if (learnCountdownTimer) { clearInterval(learnCountdownTimer); learnCountdownTimer = null; }
+        try { await window.MiOpenApi.postJson("/api/learn/stop", {}); } catch (e) { /* ignore */ }
+    }
+
+    async function startLearn(app) {
+        document.getElementById("io-learn-start").style.display = "none";
+        document.getElementById("io-learn-retry").style.display = "none";
+        document.getElementById("io-learn-result-row").style.display = "none";
+        document.getElementById("io-learn-status").textContent = "";
+        document.getElementById("io-learn-countdown-row").style.display = "";
+
+        learnSecondsLeft = 120;
+        document.getElementById("io-learn-countdown").textContent = learnSecondsLeft;
+
+        try { await window.MiOpenApi.postJson("/api/learn/start", {}); } catch (e) {
+            document.getElementById("io-learn-status").textContent = "Failed to start: " + (e.message || e);
+            document.getElementById("io-learn-countdown-row").style.display = "none";
+            document.getElementById("io-learn-start").style.display = "";
+            return;
+        }
+
+        learnCountdownTimer = setInterval(function () {
+            learnSecondsLeft--;
+            document.getElementById("io-learn-countdown").textContent = learnSecondsLeft;
+            if (learnSecondsLeft <= 0) {
+                clearInterval(learnCountdownTimer); learnCountdownTimer = null;
+                document.getElementById("io-learn-countdown-row").style.display = "none";
+                document.getElementById("io-learn-status").textContent = "No key received. Try again.";
+                document.getElementById("io-learn-retry").style.display = "";
+            }
+        }, 1000);
+    }
+
+    function onLearnActive(remaining_s) {
+        if (remaining_s !== undefined) {
+            learnSecondsLeft = remaining_s;
+            document.getElementById("io-learn-countdown").textContent = learnSecondsLeft;
+        }
+    }
+
+    function onLearnFailed() {
+        if (learnCountdownTimer) { clearInterval(learnCountdownTimer); learnCountdownTimer = null; }
+        document.getElementById("io-learn-countdown-row").style.display = "none";
+        document.getElementById("io-learn-status").textContent = "Handshake failed — TaHoma did not complete the key exchange.";
+        document.getElementById("io-learn-retry").style.display = "";
+    }
+
+    function onLearnKey(key) {
+        if (!key) return;
+        if (learnCountdownTimer) { clearInterval(learnCountdownTimer); learnCountdownTimer = null; }
+        document.getElementById("io-learn-countdown-row").style.display = "none";
+        document.getElementById("io-learn-captured-key").textContent = key;
+        document.getElementById("io-learn-result-row").style.display = "";
+        document.getElementById("io-learn-use-key").dataset.key = key;
+        document.getElementById("io-learn-use-key").style.display = "";
+        document.getElementById("io-learn-status").textContent = "Key received!";
+    }
+
+    function initLearnKey(app) {
+        document.getElementById("io-key-learn").addEventListener("click", function () {
+            resetLearnModal();
+            document.getElementById("io-key-learn-modal").classList.add("open");
+        });
+
+        document.getElementById("io-learn-cancel").addEventListener("click", async function () {
+            await cancelLearn();
+            document.getElementById("io-key-learn-modal").classList.remove("open");
+        });
+        document.getElementById("io-key-learn-modal").addEventListener("click", async function (e) {
+            if (e.target === this) { await cancelLearn(); this.classList.remove("open"); }
+        });
+        document.getElementById("io-learn-start").addEventListener("click", function () { startLearn(app); });
+        document.getElementById("io-learn-retry").addEventListener("click", function () { startLearn(app); });
+        document.getElementById("io-learn-use-key").addEventListener("click", async function () {
+            const key = this.dataset.key;
+            await cancelLearn();
+            document.getElementById("io-key-learn-modal").classList.remove("open");
+            openIoKeyEditModal(app, key);
+        });
+    }
+
+    // ── Pair as Device (receive key via TaHoma "Add device" flow) ────────────
+
+    let pairDeviceCountdownTimer = null;
+    let pairDeviceSecondsLeft = 0;
+
+    function resetPairDeviceModal() {
+        if (pairDeviceCountdownTimer) { clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null; }
+        document.getElementById("io-pair-device-countdown-row").style.display = "none";
+        document.getElementById("io-pair-device-result-row").style.display = "none";
+        document.getElementById("io-pair-device-status").textContent = "";
+        document.getElementById("io-pair-device-start").style.display = "";
+        document.getElementById("io-pair-device-retry").style.display = "none";
+        document.getElementById("io-pair-device-use-key").style.display = "none";
+    }
+
+    async function cancelPairDevice() {
+        if (pairDeviceCountdownTimer) { clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null; }
+        try { await window.MiOpenApi.postJson("/api/pair-device/stop", {}); } catch (e) { /* ignore */ }
+    }
+
+    async function startPairDevice(app) {
+        document.getElementById("io-pair-device-start").style.display = "none";
+        document.getElementById("io-pair-device-retry").style.display = "none";
+        document.getElementById("io-pair-device-result-row").style.display = "none";
+        document.getElementById("io-pair-device-status").textContent = "";
+        document.getElementById("io-pair-device-countdown-row").style.display = "";
+
+        pairDeviceSecondsLeft = 120;
+        document.getElementById("io-pair-device-countdown").textContent = pairDeviceSecondsLeft;
+
+        try { await window.MiOpenApi.postJson("/api/pair-device/start", {}); } catch (e) {
+            document.getElementById("io-pair-device-status").textContent = "Failed to start: " + (e.message || e);
+            document.getElementById("io-pair-device-countdown-row").style.display = "none";
+            document.getElementById("io-pair-device-start").style.display = "";
+            return;
+        }
+
+        pairDeviceCountdownTimer = setInterval(function () {
+            pairDeviceSecondsLeft--;
+            document.getElementById("io-pair-device-countdown").textContent = pairDeviceSecondsLeft;
+            if (pairDeviceSecondsLeft <= 0) {
+                clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null;
+                document.getElementById("io-pair-device-countdown-row").style.display = "none";
+                document.getElementById("io-pair-device-status").textContent = "No key received. Try again.";
+                document.getElementById("io-pair-device-retry").style.display = "";
+            }
+        }, 1000);
+    }
+
+    function onPairDeviceActive(remaining_s) {
+        if (remaining_s !== undefined) {
+            pairDeviceSecondsLeft = remaining_s;
+            document.getElementById("io-pair-device-countdown").textContent = pairDeviceSecondsLeft;
+        }
+    }
+
+    function onPairDeviceFailed() {
+        if (pairDeviceCountdownTimer) { clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null; }
+        document.getElementById("io-pair-device-countdown-row").style.display = "none";
+        document.getElementById("io-pair-device-status").textContent = "Handshake failed — TaHoma did not complete the key exchange.";
+        document.getElementById("io-pair-device-retry").style.display = "";
+    }
+
+    function onPairDeviceKey(key) {
+        if (!key) return;
+        if (pairDeviceCountdownTimer) { clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null; }
+        document.getElementById("io-pair-device-countdown-row").style.display = "none";
+        document.getElementById("io-pair-device-captured-key").textContent = key;
+        document.getElementById("io-pair-device-result-row").style.display = "";
+        document.getElementById("io-pair-device-use-key").dataset.key = key;
+        document.getElementById("io-pair-device-use-key").style.display = "";
+        document.getElementById("io-pair-device-status").textContent = "Key received!";
+    }
+
+    function initPairDeviceKey(app) {
+        document.getElementById("io-key-pair-device").addEventListener("click", function () {
+            resetPairDeviceModal();
+            document.getElementById("io-key-pair-device-modal").classList.add("open");
+        });
+        document.getElementById("io-pair-device-cancel").addEventListener("click", async function () {
+            await cancelPairDevice();
+            document.getElementById("io-key-pair-device-modal").classList.remove("open");
+        });
+        document.getElementById("io-key-pair-device-modal").addEventListener("click", async function (e) {
+            if (e.target === this) { await cancelPairDevice(); this.classList.remove("open"); }
+        });
+        document.getElementById("io-pair-device-start").addEventListener("click", function () { startPairDevice(app); });
+        document.getElementById("io-pair-device-retry").addEventListener("click", function () { startPairDevice(app); });
+        document.getElementById("io-pair-device-use-key").addEventListener("click", async function () {
+            const key = this.dataset.key;
+            await cancelPairDevice();
+            document.getElementById("io-key-pair-device-modal").classList.remove("open");
+            openIoKeyEditModal(app, key);
+        });
+    }
+
+    window.MiOpenSettings = {
+        init: init,
+        onKeyCaptured: onKeyCaptured,
+        onLearnActive: onLearnActive, onLearnFailed: onLearnFailed, onLearnKey: onLearnKey,
+        onPairDeviceActive: onPairDeviceActive, onPairDeviceFailed: onPairDeviceFailed, onPairDeviceKey: onPairDeviceKey
+    };
 })();
 
 // ── Syslog (settings section) ─────────────────────────────────────────────────

@@ -72,10 +72,11 @@ wrapper.appendChild(topRow);
 wrapper.appendChild(strip);
 return wrapper;
 }
-function updateDeviceFill(deviceId, percent, inverted) {
+function updateDeviceFill(deviceId, percent, inverted, estimated) {
 var el = document.querySelector('.device[data-id="' + deviceId + '"]');
 if (!el) return;
 el.classList.remove("unreachable");
+el.classList.toggle("estimating", !!estimated);
 var fill   = el.querySelector(".light-fill");
 var valEl  = el.querySelector(".pos-value");
 var stateEl= el.querySelector(".pos-state");
