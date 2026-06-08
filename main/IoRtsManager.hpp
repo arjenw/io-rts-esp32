@@ -92,6 +92,12 @@ namespace IoRts
         /// @brief Returns true if MQTT broker is currently connected
         bool GetMqttConnected() const;
 
+        /// @brief Returns current MQTT status as a string: disabled/connecting/connected/disconnected/error
+        const char *GetMqttStatusString() const;
+
+        /// @brief Start MQTT client immediately (if enabled and not already started)
+        void TriggerMqttStart();
+
     private:
         bool mIoPassive = false; // current configuration, initialized at boot
 

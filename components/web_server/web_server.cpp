@@ -631,6 +631,10 @@ static esp_err_t api_mqtt_get(httpd_req_t *req)
     cJSON_AddStringToObject(obj, "discovery",   Config::MqttConfig::GetDiscoveryPrefix().c_str());
     cJSON_AddBoolToObject(obj, "connected",     s_manager != nullptr && s_manager->GetMqttConnected());
     cJSON_AddBoolToObject(obj, "enabled",       Config::MqttConfig::isEnabled());
+    const char *mqtt_status = Config::MqttConfig::isEnabled()
+        ? (s_manager != nullptr ? s_manager->GetMqttStatusString() : "connecting")
+        : "disabled";
+    cJSON_AddStringToObject(obj, "status",      mqtt_status);
     send_json(req, obj);
     return ESP_OK;
 }
@@ -675,10 +679,14 @@ static esp_err_t api_mqtt_post(httpd_req_t *req)
         if (p > 0) Config::MqttConfig::SetBrokerPort((uint16_t)p);
     }
     cJSON *jEnabled = cJSON_GetObjectItem(json, "enabled");
-    if (cJSON_IsBool(jEnabled)) Config::MqttConfig::Activate(cJSON_IsTrue(jEnabled));
+    if (cJSON_IsBool(jEnabled)) {
+        Config::MqttConfig::Activate(cJSON_IsTrue(jEnabled));
+        if (cJSON_IsTrue(jEnabled) && s_manager != nullptr)
+            s_manager->TriggerMqttStart();
+    }
 
     cJSON_Delete(json);
-    send_result(req, true, "MQTT config saved. Reboot to apply.");
+    send_result(req, true, "MQTT config saved.");
     return ESP_OK;
 }
 

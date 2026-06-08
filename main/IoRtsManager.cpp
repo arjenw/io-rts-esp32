@@ -519,6 +519,18 @@ namespace IoRts
         return sMqttHelper != nullptr && sMqttHelper->IsMqttConnected();
     }
 
+    const char *IoRtsManager::GetMqttStatusString() const
+    {
+        if (sMqttHelper == nullptr) return "disabled";
+        return sMqttHelper->GetMqttStatusString();
+    }
+
+    void IoRtsManager::TriggerMqttStart()
+    {
+        if (sMqttHelper != nullptr)
+            sMqttHelper->StartMqttClient();
+    }
+
     void IoRtsManager::InitializeIo()
     {
         // Initialize IO-HOMECONTROL

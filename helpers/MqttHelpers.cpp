@@ -543,6 +543,7 @@ namespace Helpers
         }
         case MQTT_EVENT_ERROR:
             ESP_LOGE(TAG, "MQTT_EVENT_ERROR");
+            mqttHelper->OnMqttError();
             if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT)
             {
                 ESP_LOGE(TAG, "Last error code reported from esp-tls: 0x%x", event->error_handle->esp_tls_last_esp_err);
@@ -657,6 +658,7 @@ namespace Helpers
             return ESP_FAIL;
         }
         mStarted = true;
+        mMqttState = MqttState::CONNECTING;
         return err;
     }
     void MqttHelpers::SendDiscovery()
@@ -1538,14 +1540,28 @@ namespace Helpers
         ESP_LOGI(TAG, "Network down — cancelling MQTT reconnect timer");
         esp_timer_stop(mReconnectTimer);
     }
+    const char *MqttHelpers::GetMqttStatusString() const
+    {
+        switch (mMqttState) {
+            case MqttState::CONNECTING:    return "connecting";
+            case MqttState::CONNECTED:     return "connected";
+            case MqttState::DISCONNECTED:  return "disconnected";
+            case MqttState::ERROR:         return "error";
+            default:                       return "disabled";
+        }
+    }
+
     void MqttHelpers::OnMqttConnected()
     {
         mMqttConnected = true;
+        mMqttState = MqttState::CONNECTED;
     }
 
     void MqttHelpers::OnMqttDisconnected()
     {
         mMqttConnected = false;
+        if (mMqttState != MqttState::ERROR)
+            mMqttState = MqttState::DISCONNECTED;
         if (!mStarted || mMqttClientHandle == nullptr || mReconnectTimer == nullptr)
             return;
         if (NetworkHelpers::isConnected())

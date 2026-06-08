@@ -1,6 +1,31 @@
 (function () {
 
     let fallbackStatusTimer = null;
+    let mqttStatusTimer = null;
+
+    function updateMqttStatusEl(status) {
+        var el = document.getElementById("mqtt-conn-status");
+        if (!el) return;
+        var map = {
+            connected:    { text: "● Connected",   color: "#27ae60" },
+            connecting:   { text: "◌ Connecting…", color: "#e67e22" },
+            disconnected: { text: "○ Disconnected", color: "#888" },
+            error:        { text: "✕ Error",        color: "#e74c3c" },
+            disabled:     { text: "",              color: "" },
+        };
+        var s = map[status] || { text: "○ " + status, color: "#888" };
+        el.textContent = s.text;
+        el.style.color = s.color;
+    }
+
+    async function pollMqttStatus() {
+        var settingsView = document.getElementById("view-settings");
+        if (!settingsView || !settingsView.classList.contains("active")) return;
+        try {
+            var cfg = await window.MiOpenApi.requestJson("/api/mqtt");
+            updateMqttStatusEl(cfg.status || (cfg.connected ? "connected" : "disconnected"));
+        } catch (e) { }
+    }
 
     async function loadFallbackConfig(app) {
         try {
@@ -111,12 +136,7 @@
             var enabled = config.enabled !== false;
             app.elements.mqttEnabledInput.checked = enabled;
             app.elements.mqttEnabledToggle.classList.toggle("on", enabled);
-            var statusEl = document.getElementById("mqtt-conn-status");
-            if (statusEl) {
-                statusEl.textContent = config.connected ? "● Connected" : "○ Not connected";
-                statusEl.classList.toggle("connected", !!config.connected);
-                statusEl.classList.toggle("offline", !config.connected);
-            }
+            updateMqttStatusEl(config.status || (config.connected ? "connected" : "disconnected"));
         } catch (error) {
             console.error("Error fetching MQTT config", error);
         }
@@ -135,7 +155,8 @@
                 discovery: app.elements.mqttDiscoveryInput.value
             });
             if (!r.success) { showToast(r.message || "MQTT save failed.", "error"); return; }
-            showToast("MQTT settings saved. Reboot to apply.", "success");
+            showToast("MQTT settings saved.", "success");
+            setTimeout(pollMqttStatus, 500);
         } catch (error) {
             showToast("Error saving MQTT config.", "error");
         }
@@ -504,12 +525,15 @@
         document.getElementById("fallback-save").addEventListener("click", function () { app.saveFallbackConfig(); });
         loadFallbackConfig(app);
         fallbackStatusTimer = setInterval(function () { pollFallbackStatus(app); }, 15000);
+        mqttStatusTimer = setInterval(pollMqttStatus, 3000);
 
         app.elements.mqttEnabledInput  = document.getElementById("mqtt-enabled");
         app.elements.mqttEnabledToggle = document.getElementById("mqtt-enabled-toggle");
         app.elements.mqttEnabledToggle.addEventListener("click", function () {
             app.elements.mqttEnabledInput.checked = !app.elements.mqttEnabledInput.checked;
-            app.elements.mqttEnabledToggle.classList.toggle("on", app.elements.mqttEnabledInput.checked);
+            var on = app.elements.mqttEnabledInput.checked;
+            app.elements.mqttEnabledToggle.classList.toggle("on", on);
+            updateMqttStatusEl(on ? "connecting" : "disabled");
         });
 
         app.elements.wifiSsidInput     = document.getElementById("wifi-ssid");
