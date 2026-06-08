@@ -104,11 +104,19 @@
               <span class="row-status connected" id="fallback-status"></span>
             </div>
             <div style="display:flex;gap:6px;">
-              <input type="text" id="wifi-ssid" class="s-input" placeholder="Network name" maxlength="32" style="flex:1;">
-              <button class="s-btn" id="wifi-scan-btn">Scan</button>
+              <div style="flex:1;">
+                <label style="font-size:11px;color:var(--text3);">Network name (SSID)</label>
+                <div style="display:flex;gap:6px;margin-top:4px;">
+                  <input type="text" id="wifi-ssid" class="s-input" placeholder="Network name" maxlength="32" style="flex:1;">
+                  <button class="s-btn" id="wifi-scan-btn">Scan</button>
+                </div>
+              </div>
             </div>
             <div id="wifi-scan-results" style="display:none;"></div>
-            <input type="password" id="wifi-password" class="s-input" placeholder="Password (blank = keep current)">
+            <div>
+              <label style="font-size:11px;color:var(--text3);">Password</label>
+              <input type="password" id="wifi-password" class="s-input" placeholder="Leave blank to keep current" style="margin-top:4px;">
+            </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <button class="s-btn primary" id="wifi-config-save" style="flex:1;">Save WiFi</button>
             </div>
@@ -243,8 +251,14 @@
               <input type="checkbox" id="syslog-enabled" style="display:none">
             </div>
             <div style="display:flex;gap:6px;">
-              <input type="text" id="syslog-server"  class="s-input" placeholder="192.168.1.x" style="flex:2;">
-              <input type="text" id="syslog-port"    class="s-input" placeholder="514"         style="flex:1;">
+              <div style="flex:2;">
+                <label style="font-size:11px;color:var(--text3);">Server address</label>
+                <input type="text" id="syslog-server" class="s-input" placeholder="192.168.1.x" style="margin-top:4px;">
+              </div>
+              <div style="flex:1;">
+                <label style="font-size:11px;color:var(--text3);">Port</label>
+                <input type="text" id="syslog-port" class="s-input" placeholder="514" style="margin-top:4px;">
+              </div>
             </div>
             <div style="display:flex;gap:6px;">
               <div style="flex:1">
@@ -309,9 +323,15 @@
           <!-- Access password -->
           <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;">
             <span class="row-label">CLI / Web Access Password</span>
-            <div style="display:flex;gap:6px;align-items:center;">
-              <input type="password" id="access-password-new"     class="s-input" placeholder="New password (blank = clear)" style="flex:1;">
-              <input type="password" id="access-password-confirm" class="s-input" placeholder="Confirm"                      style="flex:1;">
+            <div style="display:flex;gap:6px;">
+              <div style="flex:1;">
+                <label style="font-size:11px;color:var(--text3);">New password</label>
+                <input type="password" id="access-password-new" class="s-input" placeholder="Blank = clear password" style="margin-top:4px;">
+              </div>
+              <div style="flex:1;">
+                <label style="font-size:11px;color:var(--text3);">Confirm password</label>
+                <input type="password" id="access-password-confirm" class="s-input" placeholder="Confirm" style="margin-top:4px;">
+              </div>
             </div>
             <button class="s-btn primary" id="access-password-save">Set Password</button>
           </div>
@@ -340,8 +360,10 @@
           <!-- OTA upload -->
           <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;">
             <span class="row-label">Firmware Update</span>
-            <span style="font-size:11px;color:var(--text3);">Use <strong>heltec-vX.X.X-firmware.bin</strong> from the GitHub release — not full.bin or web.bin</span>
-            <input type="file" id="ota-file" accept=".bin" class="s-input" style="padding:5px 10px;">
+            <div>
+              <label style="font-size:11px;color:var(--text3);">Firmware file — use <strong>heltec-vX.X.X-firmware.bin</strong> from the GitHub release, not full.bin or web.bin</label>
+              <input type="file" id="ota-file" accept=".bin" class="s-input" style="padding:5px 10px;margin-top:4px;">
+            </div>
             <button class="s-btn primary" id="ota-upload">Upload Firmware</button>
             <progress id="ota-progress" max="100" value="0" style="display:none;"></progress>
             <span id="ota-status" class="field-status"></span>
@@ -349,7 +371,10 @@
           <!-- Web UI upload -->
           <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;">
             <span class="row-label">Web UI Update</span>
-            <input type="file" id="ota-web-file" accept=".bin" class="s-input" style="padding:5px 10px;">
+            <div>
+              <label style="font-size:11px;color:var(--text3);">Web UI file (.bin)</label>
+              <input type="file" id="ota-web-file" accept=".bin" class="s-input" style="padding:5px 10px;margin-top:4px;">
+            </div>
             <button class="s-btn primary" id="ota-web-upload">Upload Web UI</button>
             <progress id="ota-web-progress" max="100" value="0" style="display:none;"></progress>
             <span id="ota-web-status" class="field-status"></span>
@@ -357,15 +382,21 @@
           <!-- Devices backup -->
           <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;">
             <span class="row-label" data-i18n="section.backup">Backup / Restore</span>
-            <div style="display:flex;gap:6px;align-items:center;">
-              <input type="file" id="devices-file" accept=".json" class="s-input" style="flex:1;padding:5px 10px;">
-              <button class="s-btn" id="upload-devices">Upload</button>
-              <button class="s-btn" id="download-devices">Download</button>
+            <div>
+              <label style="font-size:11px;color:var(--text3);">Devices (.json)</label>
+              <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
+                <input type="file" id="devices-file" accept=".json" class="s-input" style="flex:1;padding:5px 10px;">
+                <button class="s-btn" id="upload-devices">Upload</button>
+                <button class="s-btn" id="download-devices">Download</button>
+              </div>
             </div>
-            <div style="display:flex;gap:6px;align-items:center;">
-              <input type="file" id="remotes-file" accept=".json" class="s-input" style="flex:1;padding:5px 10px;">
-              <button class="s-btn" id="upload-remotes">Upload</button>
-              <button class="s-btn" id="download-remotes">Download</button>
+            <div>
+              <label style="font-size:11px;color:var(--text3);">Remotes (.json)</label>
+              <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
+                <input type="file" id="remotes-file" accept=".json" class="s-input" style="flex:1;padding:5px 10px;">
+                <button class="s-btn" id="upload-remotes">Upload</button>
+                <button class="s-btn" id="download-remotes">Download</button>
+              </div>
             </div>
           </div>
           <!-- Reboot -->
