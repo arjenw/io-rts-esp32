@@ -1646,6 +1646,21 @@ static bool json_to_stored_device(cJSON *item, std::string &deviceID, Helpers::S
         for (int i = 0; i < iohome::NODE_ID_SIZE && (i * 2 + 1) < (int)hex.length(); i++)
             dev.info.node_id[i] = (uint8_t)strtol(hex.substr(i * 2, 2).c_str(), nullptr, 16);
     }
+    // If node_id is missing or zero, default to the device's own id
+    bool nodeIdZero = true;
+    for (int i = 0; i < iohome::NODE_ID_SIZE; i++) if (dev.info.node_id[i]) { nodeIdZero = false; break; }
+    if (nodeIdZero)
+        for (int i = 0; i < iohome::NODE_ID_SIZE && (i * 2 + 1) < (int)deviceID.length(); i++)
+            dev.info.node_id[i] = (uint8_t)strtol(deviceID.substr(i * 2, 2).c_str(), nullptr, 16);
+    // Reject if node_id matches own controller address
+    std::string ownNodeId = Config::IoHomeConfig::GetIoNodeId();
+    std::string nodeIdHex;
+    for (int i = 0; i < iohome::NODE_ID_SIZE; i++)
+        nodeIdHex += std::format("{:02X}", dev.info.node_id[i]);
+    if (nodeIdHex == ownNodeId) {
+        ESP_LOGE(TAG, "json_to_stored_device: device %s has node_id equal to own node ID — rejected!", deviceID.c_str());
+        return false;
+    }
 
     cJSON *typeItem = cJSON_GetObjectItem(item, "device_type");
     if (cJSON_IsNumber(typeItem))

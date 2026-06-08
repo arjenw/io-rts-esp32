@@ -719,6 +719,11 @@ namespace iohome
       {
         for (std::map<std::string, IoDevice>::iterator it = sDeviceMap.begin(); it != sDeviceMap.end(); it++)
         {
+          if (memcmp(it->second.info.node_id, mOwnNodeId, NODE_ID_SIZE) == 0)
+          {
+            IO_LOGE("UpdateDevicesStatusTask: device {} has node_id equal to own node ID — skipping!", it->first);
+            continue;
+          }
           if (!it->second.is_deleted &&                                                              // device is not marked deleted and
               ((esp_timer_get_time() > it->second.last_status_timestamp + STATUS_UPDATE_MAX_TIME_US) // previous update is a long time ago
                || (it->second.next_status_update_timestamp < esp_timer_get_time())))                 // or we know that we should update due to previous status received
