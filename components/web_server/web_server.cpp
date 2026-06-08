@@ -631,9 +631,7 @@ static esp_err_t api_mqtt_get(httpd_req_t *req)
     cJSON_AddStringToObject(obj, "discovery",   Config::MqttConfig::GetDiscoveryPrefix().c_str());
     cJSON_AddBoolToObject(obj, "connected",     s_manager != nullptr && s_manager->GetMqttConnected());
     cJSON_AddBoolToObject(obj, "enabled",       Config::MqttConfig::isEnabled());
-    const char *mqtt_status = Config::MqttConfig::isEnabled()
-        ? (s_manager != nullptr ? s_manager->GetMqttStatusString() : "connecting")
-        : "disabled";
+    const char *mqtt_status = s_manager != nullptr ? s_manager->GetMqttStatusString() : "disabled";
     cJSON_AddStringToObject(obj, "status",      mqtt_status);
     send_json(req, obj);
     return ESP_OK;
