@@ -1822,6 +1822,18 @@ static esp_err_t api_info_get(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t api_info_fs_get(httpd_req_t *req)
+{
+    size_t total = 0, used = 0;
+    esp_littlefs_info("web", &total, &used);
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddNumberToObject(obj, "total", (double)total);
+    cJSON_AddNumberToObject(obj, "used",  (double)used);
+    cJSON_AddNumberToObject(obj, "free",  (double)(total - used));
+    send_json(req, obj);
+    return ESP_OK;
+}
+
 // ─── POST /api/upload/web ───────────────────────────────────────────────────
 
 static esp_err_t api_upload_web_post(httpd_req_t *req)
@@ -2122,7 +2134,7 @@ void web_server_start(void *ioRtsManager)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
     config.task_priority = tskIDLE_PRIORITY + 3; // below radio (8), IO processing (6), status updates (4)
-    config.max_uri_handlers = 40;
+    config.max_uri_handlers = 48;
     config.max_open_sockets = 13; // browser opens many parallel connections for static files + WS
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.enable_so_linger = false;
@@ -2188,6 +2200,7 @@ void web_server_start(void *ioRtsManager)
     reg("/api/wifi/scan",         HTTP_GET,  api_wifi_scan_get);
 #endif
     reg("/api/info",              HTTP_GET,  api_info_get);
+    reg("/api/info/fs",           HTTP_GET,  api_info_fs_get);
     reg("/api/upload/web*",       HTTP_POST, api_upload_web_post);
     reg("/api/pair/start",        HTTP_POST, api_pair_start_post);
     reg("/api/pair/status",       HTTP_GET,  api_pair_status_get);
