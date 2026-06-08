@@ -7,11 +7,12 @@
         var el = document.getElementById("mqtt-conn-status");
         if (!el) return;
         var map = {
-            connected:    { text: "● Connected",   color: "#27ae60" },
-            connecting:   { text: "◌ Connecting…", color: "#e67e22" },
-            disconnected: { text: "○ Disconnected", color: "#888" },
-            error:        { text: "✕ Error",        color: "#e74c3c" },
-            disabled:     { text: "",              color: "" },
+            connected:      { text: "● Connected",      color: "#27ae60" },
+            connecting:     { text: "◌ Connecting…",    color: "#e67e22" },
+            disconnecting:  { text: "◌ Disconnecting…", color: "#e67e22" },
+            disconnected:   { text: "○ Disconnected",   color: "#888" },
+            error:          { text: "✕ Error",          color: "#e74c3c" },
+            disabled:       { text: "",                 color: "" },
         };
         var s = map[status] || { text: "○ " + status, color: "#888" };
         el.textContent = s.text;
@@ -22,7 +23,7 @@
         var settingsView = document.getElementById("view-settings");
         if (!settingsView || !settingsView.classList.contains("active")) return;
         if (app && app.elements.mqttEnabledInput && !app.elements.mqttEnabledInput.checked) {
-            updateMqttStatusEl("disabled");
+            updateMqttStatusEl("disconnecting");
             return;
         }
         try {
@@ -537,7 +538,7 @@
             app.elements.mqttEnabledInput.checked = !app.elements.mqttEnabledInput.checked;
             var on = app.elements.mqttEnabledInput.checked;
             app.elements.mqttEnabledToggle.classList.toggle("on", on);
-            updateMqttStatusEl(on ? "connecting" : "disabled");
+            updateMqttStatusEl(on ? "connecting" : "disconnecting");
         });
 
         app.elements.wifiSsidInput     = document.getElementById("wifi-ssid");
