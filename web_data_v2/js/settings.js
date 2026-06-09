@@ -71,7 +71,7 @@
                 enabled:          app.elements.fallbackEnabled.checked,
                 retries_boot:     parseInt(app.elements.fallbackRetriesBoot.value)    || 3,
                 retries_running:  parseInt(app.elements.fallbackRetriesRunning.value) || 3,
-                ap_timeout_s:     parseInt(app.elements.fallbackTimeout.value)        || 0
+                ap_timeout_s:     parseInt(app.elements.fallbackTimeout.value)        || 600
             });
             if (!r.success && !r.ok) { showToast(r.message || "Save failed.", "error"); return; }
             showToast("Fallback AP settings saved.", "success");
@@ -227,6 +227,7 @@
         try {
             var r = await window.MiOpenApi.postJson("/api/network/config", payload);
             if (!r.success) { showToast(r.message || "Save failed.", "error"); return; }
+            if (!confirm("Network settings saved. The device needs to reboot to apply changes. Reboot now?")) return;
             showToast("Network settings saved — rebooting…", "info", 8000);
             fetch("/api/reboot", { method: "POST" }).catch(function(){});
         } catch (e) {
@@ -553,11 +554,14 @@
 
         app.elements.mqttEnabledInput  = document.getElementById("mqtt-enabled");
         app.elements.mqttEnabledToggle = document.getElementById("mqtt-enabled-toggle");
+        var mqttSaveInFlight = false;
         app.elements.mqttEnabledToggle.addEventListener("click", function () {
+            if (mqttSaveInFlight) return;
             app.elements.mqttEnabledInput.checked = !app.elements.mqttEnabledInput.checked;
             var on = app.elements.mqttEnabledInput.checked;
             app.elements.mqttEnabledToggle.classList.toggle("on", on);
-            updateMqttConfig(app, true);
+            mqttSaveInFlight = true;
+            updateMqttConfig(app, true).finally(function () { mqttSaveInFlight = false; });
         });
 
         app.elements.wifiSsidInput     = document.getElementById("wifi-ssid");
@@ -656,14 +660,24 @@
         app.loadMqttConfig   = function () { return loadMqttConfig(app); };
         app.updateMqttConfig = function () { return updateMqttConfig(app); };
 
+        var reloadInProgress = false;
         function reloadSettings() {
-            loadWifiConfig(app);
-            loadFallbackConfig(app);
-            loadNetworkConfig(app);
-            loadMqttConfig(app);
-            loadIoConfig(app);
-            loadIoKey(app);
-            if (app.loadSyslogConfig) app.loadSyslogConfig();
+            // Cancel any in-progress modal operations
+            stopSniffPoll();
+            if (learnCountdownTimer) { clearInterval(learnCountdownTimer); learnCountdownTimer = null; }
+            if (pairDeviceCountdownTimer) { clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null; }
+
+            if (reloadInProgress) return;
+            reloadInProgress = true;
+            Promise.allSettled([
+                loadWifiConfig(app),
+                loadFallbackConfig(app),
+                loadNetworkConfig(app),
+                loadMqttConfig(app),
+                loadIoConfig(app),
+                loadIoKey(app),
+                app.loadSyslogConfig ? app.loadSyslogConfig() : Promise.resolve()
+            ]).finally(function () { reloadInProgress = false; });
         }
         document.addEventListener("viewShown", function (e) {
             if (e.detail && e.detail.view === "settings") reloadSettings();
@@ -931,7 +945,7 @@
             if (!result.success) { showToast(result.message || "Syslog save failed.", "error"); return; }
             showToast(result.message || "Syslog settings saved.", "success");
         } catch (error) {
-            showToast("Error saving syslog config: " + error.message, "error");
+            showToast("Error saving syslog config: " + (error.message || error), "error");
         }
     }
 

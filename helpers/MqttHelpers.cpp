@@ -566,10 +566,14 @@ namespace Helpers
         }
     }
 
+    bool MqttHelpers::isIoHomePassive()
+    {
+        return IoHomeConfig::isPassiveModeEnabled();
+    }
+
     MqttHelpers::MqttHelpers(IoRts::IoRtsManager *manager)
         : mIoRtsManager(manager), mStarted(false), mMqttClientHandle(nullptr), mReconnectTimer(nullptr)
     {
-        mIsIoHomePassive = IoHomeConfig::isPassiveModeEnabled();
         mTopicPrefix = MqttConfig::GetTopicPrefix();
         mDiscoveryPrefix = MqttConfig::GetDiscoveryPrefix();
     }
@@ -667,7 +671,7 @@ namespace Helpers
         // Controller and IO devices are separate HA devices.
         // IO devices link back to the controller via "via_device".
         SendControllerDiscovery();
-        if (!mIsIoHomePassive)
+        if (!IoHomeConfig::isPassiveModeEnabled())
             SendIoDevicesDiscovery();
     }
     void MqttHelpers::SendControllerDiscovery()
@@ -798,7 +802,7 @@ namespace Helpers
                 error = error || (cJSON_AddStringToObject(cmp, "command_template", command_template.c_str()) == NULL); // command_template
             }
         }
-        if (!error && !mIsIoHomePassive)
+        if (!error && !IoHomeConfig::isPassiveModeEnabled())
         {
             // Add 'Discover' button
             cJSON *cmp = cJSON_AddObjectToObject(cmps, "discover");
@@ -971,8 +975,15 @@ namespace Helpers
         if (lastSlash != std::string::npos)
             discoveryBase = discoveryBase.substr(0, lastSlash);
 
-        std::lock_guard<std::mutex> guard(mIoRtsManager->mIoDevicesMutex);
-        for (auto it = mIoRtsManager->mIoDevices.begin(); it != mIoRtsManager->mIoDevices.end(); ++it)
+        // Copy all device data under the mutex, then release before any blocking MQTT publish (M2).
+        std::vector<std::pair<std::string, iohome::IoDevice>> deviceSnapshot;
+        {
+            std::lock_guard<std::mutex> guard(mIoRtsManager->mIoDevicesMutex);
+            for (auto &entry : mIoRtsManager->mIoDevices)
+                deviceSnapshot.push_back({entry.first, entry.second});
+        }
+
+        for (auto it = deviceSnapshot.begin(); it != deviceSnapshot.end(); ++it)
         {
             std::string device_id = MQTT_CLIENT_PREFIX_IO + it->first;
 
@@ -1313,154 +1324,177 @@ namespace Helpers
     }
     void MqttHelpers::SendIoDeviceStatus(const std::string &deviceId)
     {
-        if (mIsIoHomePassive)
+        if (IoHomeConfig::isPassiveModeEnabled())
             return; // don't send status if in passive mode
 
-        std::lock_guard<std::mutex> guard(mIoRtsManager->mIoDevicesMutex); // Take mutex! It will be released when quitting the scope (after for loop)
-        // send device status
-        if (mIoRtsManager != nullptr && mIoRtsManager->mIoDevices.contains(deviceId))
+        // Copy device data under the mutex, then release before any blocking MQTT publish (M2).
+        iohome::IoDevice deviceCopy;
         {
-            auto device = mIoRtsManager->mIoDevices.find(deviceId);
-            std::string stateTopic = GetTopicPrefix() + "/" + MQTT_CLIENT_PREFIX_IO + device->first + MQTT_CLIENT_STATE_TOPIC;
-            std::string positionTopic = GetTopicPrefix() + "/" + MQTT_CLIENT_PREFIX_IO + device->first + MQTT_CLIENT_POSITION_TOPIC;
-            std::string data;
-            if (device->second.is_deleted)
-            {
-                // device is marked as deleted, send empty messages to remove all retained messages for this device
-                esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), NULL, 0, 0, 1);
-                esp_mqtt_client_publish(mMqttClientHandle, positionTopic.c_str(), NULL, 0, 0, 1);
-                if (iohome::deviceTypeSupportsTilt(device->second.info.device_type))
-                {
-                    std::string tiltTopic = GetTopicPrefix() + "/" + MQTT_CLIENT_PREFIX_IO + device->first + MQTT_CLIENT_TILT_TOPIC;
-                    esp_mqtt_client_publish(mMqttClientHandle, tiltTopic.c_str(), NULL, 0, 0, 1);
-                }
+            std::lock_guard<std::mutex> guard(mIoRtsManager->mIoDevicesMutex);
+            if (mIoRtsManager == nullptr)
                 return;
-            }
-            switch (device->second.info.device_type)
+            auto device = mIoRtsManager->mIoDevices.find(deviceId);
+            if (device == mIoRtsManager->mIoDevices.end())
+                return;
+            deviceCopy = device->second; // copy by value — mutex released after this block
+        }
+
+        // All MQTT publishes happen here with no mutex held.
+        std::string stateTopic = GetTopicPrefix() + "/" + MQTT_CLIENT_PREFIX_IO + deviceId + MQTT_CLIENT_STATE_TOPIC;
+        std::string positionTopic = GetTopicPrefix() + "/" + MQTT_CLIENT_PREFIX_IO + deviceId + MQTT_CLIENT_POSITION_TOPIC;
+        std::string data;
+        if (deviceCopy.is_deleted)
+        {
+            // device is marked as deleted, send empty messages to remove all retained messages for this device
+            esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), NULL, 0, 0, 1);
+            esp_mqtt_client_publish(mMqttClientHandle, positionTopic.c_str(), NULL, 0, 0, 1);
+            if (iohome::deviceTypeSupportsTilt(deviceCopy.info.device_type))
             {
-            case DeviceType::VENETIAN_BLIND:
-            case DeviceType::ROLLER_SHUTTER:
-            case DeviceType::AWNING:
-            case DeviceType::WINDOW_OPENER:
-            case DeviceType::GARAGE_OPENER:
-            case DeviceType::GATE_OPENER:
-            case DeviceType::ROLLING_DOOR_OPENER:
-            case DeviceType::BLIND:
-            case DeviceType::DUAL_SHUTTER:
-            case DeviceType::HORIZONTAL_AWNING:
-            case DeviceType::EXTERNAL_VENETIAN_BLIND:
-            case DeviceType::LOUVRE_BLIND:
-            case DeviceType::CURTAIN_TRACK:
-            case DeviceType::SWINGING_SHUTTER:
-                // send position
-                if (device->second.position != UNKNOWN_POSITION)
+                std::string tiltTopic = GetTopicPrefix() + "/" + MQTT_CLIENT_PREFIX_IO + deviceId + MQTT_CLIENT_TILT_TOPIC;
+                esp_mqtt_client_publish(mMqttClientHandle, tiltTopic.c_str(), NULL, 0, 0, 1);
+            }
+            return;
+        }
+        switch (deviceCopy.info.device_type)
+        {
+        case DeviceType::VENETIAN_BLIND:
+        case DeviceType::ROLLER_SHUTTER:
+        case DeviceType::AWNING:
+        case DeviceType::WINDOW_OPENER:
+        case DeviceType::GARAGE_OPENER:
+        case DeviceType::GATE_OPENER:
+        case DeviceType::ROLLING_DOOR_OPENER:
+        case DeviceType::BLIND:
+        case DeviceType::DUAL_SHUTTER:
+        case DeviceType::HORIZONTAL_AWNING:
+        case DeviceType::EXTERNAL_VENETIAN_BLIND:
+        case DeviceType::LOUVRE_BLIND:
+        case DeviceType::CURTAIN_TRACK:
+        case DeviceType::SWINGING_SHUTTER:
+            // send position
+            if (deviceCopy.position != UNKNOWN_POSITION)
+            {
+                data = std::to_string((int)deviceCopy.position);
+                esp_mqtt_client_publish(mMqttClientHandle, positionTopic.c_str(), data.c_str(), 0, 0, 1);
+                // send state
+                if (deviceCopy.is_stopped)
                 {
-                    data = std::to_string((int)device->second.position);
-                    esp_mqtt_client_publish(mMqttClientHandle, positionTopic.c_str(), data.c_str(), 0, 0, 1);
-                    // send state
-                    if (device->second.is_stopped)
+                    if (deviceCopy.info.is_openclose_inverted)
                     {
-                        if (device->second.info.is_openclose_inverted)
-                        {
-                            if (device->second.position < (float)0.1)
-                                data = "closed";
-                            else
-                                data = "open";
-                        }
+                        if (deviceCopy.position < (float)0.1)
+                            data = "closed";
                         else
-                        {
-                            if (device->second.position > (float)99.9)
-                                data = "closed";
-                            else
-                                data = "open";
-                        }
+                            data = "open";
                     }
                     else
                     {
-                        if (device->second.position > device->second.target)
-                            data = device->second.info.is_openclose_inverted ? "closing" : "opening";
+                        if (deviceCopy.position > (float)99.9)
+                            data = "closed";
                         else
-                            data = device->second.info.is_openclose_inverted ? "opening" : "closing";
-                    }
-                    esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), data.c_str(), 0, 0, 1);
-                    // send tilt if device supports it
-                    if (iohome::deviceTypeSupportsTilt(device->second.info.device_type) && device->second.tilt != UNKNOWN_POSITION)
-                    {
-                        std::string tiltTopic = GetTopicPrefix() + "/" + MQTT_CLIENT_PREFIX_IO + device->first + MQTT_CLIENT_TILT_TOPIC;
-                        data = std::to_string((int)device->second.tilt);
-                        esp_mqtt_client_publish(mMqttClientHandle, tiltTopic.c_str(), data.c_str(), 0, 0, 1);
+                            data = "open";
                     }
                 }
                 else
                 {
-                    data = "None";
-                    esp_mqtt_client_publish(mMqttClientHandle, positionTopic.c_str(), data.c_str(), 0, 0, 1);
-                    data = "open";
-                    esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), data.c_str(), 0, 0, 1);
-                }
-                break;
-            case DeviceType::LIGHT:
-                if (!device->second.is_stopped)
-                    return; // don't send current position as it is not correct
-                if (device->second.position == 0)
-                    data = "ON";
-                else if (device->second.position == UNKNOWN_POSITION)
-                    data = "None";
-                else
-                    data = "OFF";
-                esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), data.c_str(), 0, 0, 1);
-                // TODO: manage brightness, waiting for feedback
-                break;
-            case DeviceType::ON_OFF_SWITCH:
-                if (!device->second.is_stopped)
-                    return; // don't send current position as it is not correct
-                if (device->second.position == 0)
-                    data = "ON";
-                else if (device->second.position == UNKNOWN_POSITION)
-                    data = "None";
-                else
-                    data = "OFF";
-                esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), data.c_str(), 0, 0, 1);
-                break;
-            case DeviceType::LOCK:
-                if (device->second.position != UNKNOWN_POSITION)
-                {
-                    // find state
-                    if (device->second.is_stopped)
+                    // Guard against UNKNOWN_POSITION target before direction comparison (M6).
+                    if (deviceCopy.target != UNKNOWN_POSITION)
                     {
-                        if (device->second.position > (float)99.9)
-                            data = "LOCKED";
+                        if (deviceCopy.position > deviceCopy.target)
+                            data = deviceCopy.info.is_openclose_inverted ? "closing" : "opening";
                         else
-                            data = "UNLOCKED";
+                            data = deviceCopy.info.is_openclose_inverted ? "opening" : "closing";
                     }
-                    else // not sure this can happen, waiting for feedback
+                    else
                     {
-                        if (device->second.position > device->second.target)
+                        // Target unknown — use safe default direction
+                        data = deviceCopy.info.is_openclose_inverted ? "opening" : "closing";
+                    }
+                }
+                esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), data.c_str(), 0, 0, 1);
+                // send tilt if device supports it
+                if (iohome::deviceTypeSupportsTilt(deviceCopy.info.device_type) && deviceCopy.tilt != UNKNOWN_POSITION)
+                {
+                    std::string tiltTopic = GetTopicPrefix() + "/" + MQTT_CLIENT_PREFIX_IO + deviceId + MQTT_CLIENT_TILT_TOPIC;
+                    data = std::to_string((int)deviceCopy.tilt);
+                    esp_mqtt_client_publish(mMqttClientHandle, tiltTopic.c_str(), data.c_str(), 0, 0, 1);
+                }
+            }
+            else
+            {
+                data = "None";
+                esp_mqtt_client_publish(mMqttClientHandle, positionTopic.c_str(), data.c_str(), 0, 0, 1);
+                data = "open";
+                esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), data.c_str(), 0, 0, 1);
+            }
+            break;
+        case DeviceType::LIGHT:
+            if (!deviceCopy.is_stopped)
+                return; // don't send current position as it is not correct
+            if (deviceCopy.position == 0)
+                data = "ON";
+            else if (deviceCopy.position == UNKNOWN_POSITION)
+                data = "None";
+            else
+                data = "OFF";
+            esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), data.c_str(), 0, 0, 1);
+            // TODO: manage brightness, waiting for feedback
+            break;
+        case DeviceType::ON_OFF_SWITCH:
+            if (!deviceCopy.is_stopped)
+                return; // don't send current position as it is not correct
+            if (deviceCopy.position == 0)
+                data = "ON";
+            else if (deviceCopy.position == UNKNOWN_POSITION)
+                data = "None";
+            else
+                data = "OFF";
+            esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), data.c_str(), 0, 0, 1);
+            break;
+        case DeviceType::LOCK:
+            if (deviceCopy.position != UNKNOWN_POSITION)
+            {
+                // find state
+                if (deviceCopy.is_stopped)
+                {
+                    if (deviceCopy.position > (float)99.9)
+                        data = "LOCKED";
+                    else
+                        data = "UNLOCKED";
+                }
+                else // not sure this can happen, waiting for feedback
+                {
+                    // Guard against UNKNOWN_POSITION target before direction comparison (M6).
+                    if (deviceCopy.target != UNKNOWN_POSITION)
+                    {
+                        if (deviceCopy.position > deviceCopy.target)
                             data = "UNLOCKING";
                         else
                             data = "LOCKING";
                     }
+                    else
+                    {
+                        data = "LOCKING"; // safe default when target unknown
+                    }
                 }
-                else
-                {
-                    data = "None";
-                }
-                esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), data.c_str(), 0, 0, 1);
-                break;
-            // other device types we don't support yet so don't send MQTT discovery for now
-            case DeviceType::UNKNOWN:
-            case DeviceType::UNKNOWN_0B:
-            case DeviceType::BEACON:
-            case DeviceType::HEATING_TEMPERATURE_INTERFACE:
-            case DeviceType::VENTILATION_POINT:
-            case DeviceType::EXTERIOR_HEATING:
-            case DeviceType::HEAT_PUMP:
-            case DeviceType::INTRUSION_ALARM:
-            default:
-                break;
             }
+            else
+            {
+                data = "None";
+            }
+            esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), data.c_str(), 0, 0, 1);
+            break;
+        // other device types we don't support yet so don't send MQTT discovery for now
+        case DeviceType::UNKNOWN:
+        case DeviceType::UNKNOWN_0B:
+        case DeviceType::BEACON:
+        case DeviceType::HEATING_TEMPERATURE_INTERFACE:
+        case DeviceType::VENTILATION_POINT:
+        case DeviceType::EXTERIOR_HEATING:
+        case DeviceType::HEAT_PUMP:
+        case DeviceType::INTRUSION_ALARM:
+        default:
+            break;
         }
-        // Mutex automatically released!
     }
     void MqttHelpers::PublishInactiveDevicesList()
     {

@@ -14,7 +14,7 @@
 
     function pollUntilOnline(onDone, onTimeout, deadline) {
         if (Date.now() > deadline) { onTimeout(); return; }
-        fetch("/api/devices?" + Date.now(), { cache: "no-store" })
+        fetch("/api/info?" + Date.now(), { cache: "no-store" })
             .then(function (r) {
                 if (r.ok) { onDone(); }
                 else { setTimeout(function () { pollUntilOnline(onDone, onTimeout, deadline); }, POLL_INTERVAL); }
@@ -53,7 +53,10 @@
                 app.elements.otaProgress.value = 100;
                 setStatus(app, "Rebooting…");
                 pollUntilOnline(
-                    function () { setStatus(app, "Done — device is back online.", "green"); app.elements.otaUploadButton.disabled = false; },
+                    function () {
+                        setStatus(app, "Done — reloading…", "green");
+                        setTimeout(function () { location.reload(); }, 1500);
+                    },
                     function () { finishWithError(app, "Timed out waiting for device to come back online."); },
                     Date.now() + POLL_TIMEOUT
                 );
@@ -270,7 +273,11 @@
                 status.textContent = "Rebooting…";
                 status.style.color = "";
                 pollUntilOnline(
-                    function () { status.textContent = "Done — device is back online."; status.style.color = "green"; btn.disabled = false; },
+                    function () {
+                        status.textContent = "Done — reloading…";
+                        status.style.color = "green";
+                        setTimeout(function () { location.reload(); }, 1500);
+                    },
                     function () { setErr("Timed out waiting for device to come back online."); },
                     Date.now() + POLL_TIMEOUT
                 );
