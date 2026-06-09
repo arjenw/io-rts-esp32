@@ -728,6 +728,7 @@ function showView(id, btn) {
     document.getElementById('view-' + id).classList.add('active');
     btn.classList.add('active');
     if (mainEl) mainEl.scrollTop = _viewScroll['view-' + id] || 0;
+    document.dispatchEvent(new CustomEvent('viewShown', { detail: { view: id } }));
 }
 
 // Fallback AP toggle — wire visual toggle to hidden checkbox

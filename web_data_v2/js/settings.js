@@ -651,6 +651,19 @@
         app.loadMqttConfig   = function () { return loadMqttConfig(app); };
         app.updateMqttConfig = function () { return updateMqttConfig(app); };
 
+        function reloadSettings() {
+            loadWifiConfig(app);
+            loadFallbackConfig(app);
+            loadNetworkConfig(app);
+            loadMqttConfig(app);
+            loadIoConfig(app);
+            loadIoKey(app);
+            if (app.loadSyslogConfig) app.loadSyslogConfig();
+        }
+        document.addEventListener("viewShown", function (e) {
+            if (e.detail && e.detail.view === "settings") reloadSettings();
+        });
+
         app.uploadDevices = function () {
             return uploadSelectedFile(
                 app, app.elements.devicesFileInput, "/api/upload/devices",
