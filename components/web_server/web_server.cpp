@@ -2075,11 +2075,17 @@ static bool s_pair_device_active = false;
 static void pair_device_task(void *)
 {
     ESP_LOGI(TAG, "Pair-as-device task started — waiting for TaHoma broadcast CMD 28");
+
+    // Generate one stable fake node ID for the whole session so TaHoma sees the
+    // same device identity on every CMD 28 / CMD 29 exchange and can complete the handshake.
+    uint8_t sessionNodeId[3];
+    esp_fill_random(sessionNodeId, sizeof(sessionNodeId));
+
     const int MAX_ATTEMPTS = 60; // 60 × ~2 s ≈ 120 s window
     std::string key;
     for (int attempt = 0; attempt < MAX_ATTEMPTS && s_pair_device_active; attempt++)
     {
-        key = s_manager->mIoHome->PairAsDevice();
+        key = s_manager->mIoHome->PairAsDevice(sessionNodeId);
         if (!key.empty()) break;
         if ((attempt % 5) == 4) {
             int remaining_s = (MAX_ATTEMPTS - attempt - 1) * 2;

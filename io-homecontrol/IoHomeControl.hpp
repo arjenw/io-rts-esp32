@@ -158,7 +158,7 @@ namespace iohome
     /// TaHoma/CK in "add device" mode sends CMD 28 to the broadcast address (0x00003B).
     /// We respond as a ROLLER_SHUTTER device and complete the full key exchange to obtain the system key.
     /// Returns the received key as a 32-char hex string on success, empty string on failure/timeout.
-    std::string PairAsDevice();
+    std::string PairAsDevice(const uint8_t *sessionNodeId = nullptr);
 
     /// @brief Set position of an actuator (e.g., blind, shutter)
     /// @param deviceID Device ID (6 characters as hex representation of the 3 bytes, eg "112233")

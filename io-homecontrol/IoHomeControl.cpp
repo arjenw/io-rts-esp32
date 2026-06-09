@@ -1080,7 +1080,7 @@ namespace iohome
     return result;
   }
 
-  std::string IoHomeControl::PairAsDevice()
+  std::string IoHomeControl::PairAsDevice(const uint8_t *sessionNodeId)
   {
     if (!mInitialized || !mReceiving || mPassiveMode)
     {
@@ -1093,10 +1093,13 @@ namespace iohome
       return "";
     }
 
-    // Generate a random node ID for this session — a real device has a unique factory ID
+    // Use caller-supplied node ID (stable across retries) or generate a fresh random one
     uint8_t fakeNodeId[NODE_ID_SIZE];
-    esp_fill_random(fakeNodeId, NODE_ID_SIZE);
-    ESP_LOGI(TAG, "PairAsDevice: using random node ID %s", buffToHexString(NODE_ID_SIZE, fakeNodeId).c_str());
+    if (sessionNodeId)
+      memcpy(fakeNodeId, sessionNodeId, NODE_ID_SIZE);
+    else
+      esp_fill_random(fakeNodeId, NODE_ID_SIZE);
+    ESP_LOGI(TAG, "PairAsDevice: using node ID %s", buffToHexString(NODE_ID_SIZE, fakeNodeId).c_str());
 
     std::string result;
     RxFrameQueueItem rxItem;
