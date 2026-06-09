@@ -1169,6 +1169,8 @@ static esp_err_t api_ota_url_post(httpd_req_t *req)
     http_cfg.max_redirection_count = 5;
     http_cfg.crt_bundle_attach = esp_crt_bundle_attach;
     http_cfg.timeout_ms = 30000;
+    http_cfg.buffer_size = 4096;     // CDN redirect headers are large; default 512 causes "Out of buffer"
+    http_cfg.buffer_size_tx = 1024;
 
     esp_http_client_handle_t client = esp_http_client_init(&http_cfg);
     if (!client) { send_result(req, false, "HTTP client init failed"); return ESP_OK; }
