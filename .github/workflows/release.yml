@@ -23,7 +23,7 @@ jobs:
       - name: Build firmware
         run: |
           . $IDF_PATH/export.sh
-          idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.heltec" -DAPP_VERSION="${{ github.ref_name }}" build
+          idf.py -DIDF_TARGET=esp32 -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.heltec" -DAPP_VERSION="${{ github.ref_name }}" build
 
       - name: Prepare artifacts
         run: |
