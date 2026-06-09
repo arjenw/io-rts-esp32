@@ -2014,19 +2014,7 @@ static bool s_learn_active = false;
 static void learn_task(void *)
 {
     ESP_LOGI(TAG, "Key learn task started — waiting for controller");
-    const int MAX_ATTEMPTS = 60; // 60 × ~2 s ≈ 120 s window
-    std::string key;
-    for (int attempt = 0; attempt < MAX_ATTEMPTS && s_learn_active; attempt++)
-    {
-        key = s_manager->mIoHome->LearnKeyFromController();
-        if (!key.empty()) break;
-        if ((attempt % 5) == 4) {
-            int remaining_s = (MAX_ATTEMPTS - attempt - 1) * 2;
-            char buf[72];
-            snprintf(buf, sizeof(buf), "{\"type\":\"learn_active\",\"remaining_s\":%d}", remaining_s);
-            web_server_broadcast_message(buf);
-        }
-    }
+    std::string key = s_manager->mIoHome->LearnKeyFromController(&s_learn_active);
     s_learn_active = false;
     if (key.empty()) {
         ESP_LOGW(TAG, "Key learn timed out");

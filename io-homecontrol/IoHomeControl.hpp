@@ -152,7 +152,11 @@ namespace iohome
     /// @brief Listen for a controller (e.g. TaHoma/Connectivity Kit) initiating key sharing
     /// and complete the device-side handshake to receive the system key.
     /// Returns the received key as a 32-char hex string on success, empty string on failure/timeout.
-    std::string LearnKeyFromController();
+    /// @brief Learn the system key from another controller — blocks up to 120 s.
+    /// Retries the handshake from CMD 28 on partial failures.
+    /// @param active Pointer to a bool the caller can set to false to cancel early.
+    /// @return System key on success, empty string on timeout or cancellation.
+    std::string LearnKeyFromController(const volatile bool *active = nullptr);
 
     /// @brief Pretend to be a new 2W actuator waiting to be paired.
     /// TaHoma/CK in "add device" mode sends CMD 28 to the broadcast address (0x00003B).

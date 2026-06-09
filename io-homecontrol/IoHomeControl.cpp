@@ -963,121 +963,140 @@ namespace iohome
     }
   }
 
-  std::string IoHomeControl::LearnKeyFromController()
+  std::string IoHomeControl::LearnKeyFromController(const volatile bool *active)
   {
     if (!mInitialized || !mReceiving || mPassiveMode)
     {
       IO_LOGE("LearnKeyFromController: invalid state!");
       return "";
     }
-    if (!xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
-    {
-      IO_LOGE("LearnKeyFromController: failed to take mutex!");
-      return "";
-    }
 
-    std::string result;
-    IoFrame response;
+    IO_LOGI("LearnKeyFromController: session started (120 s window)");
+
+    const int64_t SESSION_US = 120LL * 1000000LL;
+    const int64_t deadline   = esp_timer_get_time() + SESSION_US;
+
     RxFrameQueueItem rxItem;
 
-    // Step 1: wait for CMD 0x28 from any controller
-    if (!xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_DISCOVERY_RESPONSE_WAIT_TICKS)
-        || rxItem.frame.command_id != CMD_DISCOVER_REQUEST)
+    // Outer loop: wait for CMD 28, retry the handshake from scratch on partial failures.
+    // The mutex is released between CMD 28 polls so the frame processor can keep running.
+    while ((active == nullptr || *active) && esp_timer_get_time() < deadline)
     {
+      if (!xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
+      {
+        IO_LOGE("LearnKeyFromController: failed to take mutex!");
+        return "";
+      }
+
+      // Wait up to 2 s for the next CMD 28 from any controller
+      bool got = xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_DISCOVERY_RESPONSE_WAIT_TICKS);
+      if (!got || rxItem.frame.command_id != CMD_DISCOVER_REQUEST)
+      {
+        xSemaphoreGive(sMutex);
+        continue;
+      }
+      ESP_LOGI(TAG, "LearnKeyFromController: CMD 28 from %s",
+               buffToHexString(NODE_ID_SIZE, rxItem.frame.src_node).c_str());
+
+      // Step 2: respond with CMD 29 using our own node ID — hold mutex through the handshake
+      IoFrame disc_resp;
+      if (!create_discovery_response(disc_resp, mOwnNodeId, rxItem.frame.src_node)
+          || !TransmitFrame(disc_resp, rxItem.frequency, SHORT_PREAMBLE_LENGTH))
+      {
+        ESP_LOGE(TAG, "LearnKeyFromController: failed to send CMD 29");
+        xSemaphoreGive(sMutex);
+        continue;
+      }
+      ESP_LOGI(TAG, "LearnKeyFromController: CMD 29 sent");
+
+      // Step 3: wait for CMD 2C
+      if (!xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS)
+          || rxItem.frame.command_id != CMD_DISCOVER_CONFIRMATION)
+      {
+        ESP_LOGW(TAG, "LearnKeyFromController: no CMD 2C — retrying from CMD 28");
+        xSemaphoreGive(sMutex);
+        continue;
+      }
+      ESP_LOGI(TAG, "LearnKeyFromController: CMD 2C received — sending CMD 2D");
+
+      // Step 4: reply with CMD 2D
+      IoFrame conf_ack;
+      if (!create_discovery_confirmation_ack(conf_ack, mOwnNodeId, rxItem.frame.src_node)
+          || !TransmitFrame(conf_ack, rxItem.frequency, SHORT_PREAMBLE_LENGTH))
+      {
+        ESP_LOGE(TAG, "LearnKeyFromController: failed to send CMD 2D");
+        xSemaphoreGive(sMutex);
+        continue;
+      }
+
+      // Steps 5-9: complete the key exchange
+      bool handshake_ok = false;
+      std::string result;
+
+      IoFrame key_init_frame;
+      uint8_t controller_node[NODE_ID_SIZE];
+
+      if (!xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS)
+          || rxItem.frame.command_id != CMD_KEY_INIT_TRANSFER)
+      {
+        ESP_LOGE(TAG, "LearnKeyFromController: no CMD 31 received");
+      }
+      else
+      {
+        ESP_LOGI(TAG, "LearnKeyFromController: CMD 31 received");
+        key_init_frame = rxItem.frame;
+        memcpy(controller_node, rxItem.frame.src_node, NODE_ID_SIZE);
+
+        RxFrameQueueItem challenge_item;
+        if (!xQueueReceive(sRxIoQueue, &challenge_item, RECEIVED_IO_TREATMENT_WAIT_TICKS)
+            || challenge_item.frame.command_id != CMD_CHALLENGE_REQUEST
+            || challenge_item.frame.data_len != HMAC_SIZE)
+        {
+          ESP_LOGE(TAG, "LearnKeyFromController: no CMD 3C received");
+        }
+        else
+        {
+          ESP_LOGI(TAG, "LearnKeyFromController: CMD 3C received — waiting for CMD 32");
+
+          RxFrameQueueItem key_item;
+          if (!xQueueReceive(sRxIoQueue, &key_item, RECEIVED_IO_TREATMENT_WAIT_TICKS)
+              || key_item.frame.command_id != CMD_KEY_TRANSFER
+              || key_item.frame.data_len != AES_KEY_SIZE)
+          {
+            ESP_LOGE(TAG, "LearnKeyFromController: no CMD 32 received");
+          }
+          else
+          {
+            ESP_LOGI(TAG, "LearnKeyFromController: CMD 32 received — decrypting key");
+            uint8_t decrypted_key[AES_KEY_SIZE];
+            if (!iohome::crypto::crypt_2w_key(&key_init_frame.command_id, 1,
+                                               challenge_item.frame.data,
+                                               key_item.frame.data, decrypted_key))
+            {
+              ESP_LOGE(TAG, "LearnKeyFromController: key decryption failed");
+            }
+            else
+            {
+              result = buffToHexString(AES_KEY_SIZE, decrypted_key);
+              ESP_LOGI(TAG, "LearnKeyFromController: key received: %s", result.c_str());
+
+              IoFrame confirm;
+              if (create_key_transfer_confirmation(confirm, mOwnNodeId, controller_node))
+                TransmitFrame(confirm, key_item.frequency, SHORT_PREAMBLE_LENGTH);
+              ESP_LOGI(TAG, "LearnKeyFromController: CMD 33 sent — complete");
+              handshake_ok = true;
+            }
+          }
+        }
+      }
+
       xSemaphoreGive(sMutex);
-      return "";
-    }
-    ESP_LOGI(TAG, "LearnKeyFromController: CMD 28 from %s", buffToHexString(NODE_ID_SIZE, rxItem.frame.src_node).c_str());
-
-    // Step 2: respond with CMD 0x29 using our own node ID (controller-to-controller share)
-    IoFrame disc_resp;
-    if (!create_discovery_response(disc_resp, mOwnNodeId, rxItem.frame.src_node)
-        || !TransmitFrame(disc_resp, rxItem.frequency, SHORT_PREAMBLE_LENGTH))
-    {
-      ESP_LOGE(TAG, "LearnKeyFromController: failed to send CMD 29");
-      xSemaphoreGive(sMutex);
-      return "";
-    }
-    ESP_LOGI(TAG, "LearnKeyFromController: CMD 29 sent");
-
-    // Step 3: wait for CMD 0x2C (discovery confirmation from controller)
-    if (!xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS)
-        || rxItem.frame.command_id != CMD_DISCOVER_CONFIRMATION)
-    {
-      ESP_LOGE(TAG, "LearnKeyFromController: no CMD 2C received");
-      xSemaphoreGive(sMutex);
-      return "";
-    }
-    ESP_LOGI(TAG, "LearnKeyFromController: CMD 2C received — sending CMD 2D");
-
-    // Step 4: reply with CMD 0x2D (discovery confirmation ack)
-    IoFrame conf_ack;
-    if (!create_discovery_confirmation_ack(conf_ack, mOwnNodeId, rxItem.frame.src_node)
-        || !TransmitFrame(conf_ack, rxItem.frequency, SHORT_PREAMBLE_LENGTH))
-    {
-      ESP_LOGE(TAG, "LearnKeyFromController: failed to send CMD 2D");
-      xSemaphoreGive(sMutex);
-      return "";
+      if (handshake_ok) return result;
+      // Any step after CMD 2D failed — retry from CMD 28
     }
 
-    // Step 5: wait for CMD 0x31 (key init transfer)
-    if (!xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS)
-        || rxItem.frame.command_id != CMD_KEY_INIT_TRANSFER)
-    {
-      ESP_LOGE(TAG, "LearnKeyFromController: no CMD 31 received");
-      xSemaphoreGive(sMutex);
-      return "";
-    }
-    ESP_LOGI(TAG, "LearnKeyFromController: CMD 31 received");
-    IoFrame key_init_frame = rxItem.frame;
-    uint8_t controller_node[NODE_ID_SIZE];
-    memcpy(controller_node, rxItem.frame.src_node, NODE_ID_SIZE);
-
-    // Step 6: wait for CMD 0x3C (challenge from controller)
-    RxFrameQueueItem challenge_item;
-    if (!xQueueReceive(sRxIoQueue, &challenge_item, RECEIVED_IO_TREATMENT_WAIT_TICKS)
-        || challenge_item.frame.command_id != CMD_CHALLENGE_REQUEST
-        || challenge_item.frame.data_len != HMAC_SIZE)
-    {
-      ESP_LOGE(TAG, "LearnKeyFromController: no CMD 3C received");
-      xSemaphoreGive(sMutex);
-      return "";
-    }
-    ESP_LOGI(TAG, "LearnKeyFromController: CMD 3C received — sending CMD 32 wait");
-
-    // Step 7: wait for CMD 0x32 (encrypted key)
-    RxFrameQueueItem key_item;
-    if (!xQueueReceive(sRxIoQueue, &key_item, RECEIVED_IO_TREATMENT_WAIT_TICKS)
-        || key_item.frame.command_id != CMD_KEY_TRANSFER
-        || key_item.frame.data_len != AES_KEY_SIZE)
-    {
-      ESP_LOGE(TAG, "LearnKeyFromController: no CMD 32 received");
-      xSemaphoreGive(sMutex);
-      return "";
-    }
-    ESP_LOGI(TAG, "LearnKeyFromController: CMD 32 received — decrypting key");
-
-    // Step 8: decrypt the key
-    uint8_t decrypted_key[AES_KEY_SIZE];
-    if (!iohome::crypto::crypt_2w_key(&key_init_frame.command_id, 1,
-                                       challenge_item.frame.data,
-                                       key_item.frame.data, decrypted_key))
-    {
-      ESP_LOGE(TAG, "LearnKeyFromController: key decryption failed");
-      xSemaphoreGive(sMutex);
-      return "";
-    }
-    result = buffToHexString(AES_KEY_SIZE, decrypted_key);
-    ESP_LOGI(TAG, "LearnKeyFromController: key received: %s", result.c_str());
-
-    // Step 9: send CMD 0x33 (key transfer confirmation)
-    IoFrame confirm;
-    if (create_key_transfer_confirmation(confirm, mOwnNodeId, controller_node))
-      TransmitFrame(confirm, key_item.frequency, SHORT_PREAMBLE_LENGTH);
-    ESP_LOGI(TAG, "LearnKeyFromController: CMD 33 sent — complete");
-
-    xSemaphoreGive(sMutex);
-    return result;
+    IO_LOGI("LearnKeyFromController: session ended (timeout or cancelled)");
+    return "";
   }
 
   std::string IoHomeControl::PairAsDevice(const volatile bool *active)
