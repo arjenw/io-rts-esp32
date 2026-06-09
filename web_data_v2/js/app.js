@@ -24,8 +24,11 @@
                 window.URL.revokeObjectURL(a.href);
             },
             postJson: function (url, payload) {
-                return requestJson(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+                var headers = { "Content-Type": "application/json" };
+                if (window.MiOpenApi.otaKey) headers["X-OTA-Key"] = window.MiOpenApi.otaKey;
+                return requestJson(url, { method: "POST", headers: headers, body: JSON.stringify(payload) });
             },
+            otaKey: null,
             requestJson: requestJson,
             uploadFile: function (url, file) {
                 var fd = new FormData();
@@ -332,6 +335,11 @@
             app.fetchAndDisplayDevices();
             app.fetchAndDisplayRemotes();
         });
+
+        fetch("/api/ota/key?" + Date.now(), { cache: "no-store" })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (d.key) window.MiOpenApi.otaKey = d.key; })
+            .catch(function () {});
 
         fetch("/api/info?" + Date.now(), { cache: "no-store" })
             .then(function (r) { return r.json(); })
