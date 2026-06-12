@@ -1033,34 +1033,12 @@ namespace iohome
       uint32_t tahoma_freq = rxItem.frequency;
       IO_LOGI("LearnKeyFromController: CMD 29 from {}", buffToHexString(NODE_ID_SIZE, tahoma_node));
 
-      // Step 3: send CMD 31 (ask TaHoma for its challenge / IV seed)
-      IoFrame init_frame;
-      if (!create_init_transfer(init_frame, mOwnNodeId, tahoma_node)
-          || !TransmitFrame(init_frame, tahoma_freq, SHORT_PREAMBLE_LENGTH))
-      {
-        IO_LOGE("LearnKeyFromController: failed to send CMD 31");
-        vTaskPrioritySet(NULL, savedPriority);
-        xSemaphoreGive(sMutex);
-        continue;
-      }
-      IO_LOGI("LearnKeyFromController: CMD 31 sent — waiting for CMD 3C");
-
-      // Step 4: wait for CMD 3C (TaHoma's 6-byte challenge, used as IV seed for CMD 32)
-      RxFrameQueueItem challenge_item;
-      if (!xQueueReceive(sRxIoQueue, &challenge_item, RECEIVED_IO_TREATMENT_WAIT_TICKS)
-          || challenge_item.frame.command_id != CMD_CHALLENGE_REQUEST
-          || challenge_item.frame.data_len != HMAC_SIZE)
-      {
-        IO_LOGE("LearnKeyFromController: no CMD 3C received");
-        vTaskPrioritySet(NULL, savedPriority);
-        xSemaphoreGive(sMutex);
-        continue;
-      }
-      IO_LOGI("LearnKeyFromController: CMD 3C received — sending CMD 38");
-
-      // Step 5: send CMD 38 echoing TaHoma's challenge back — signals TaHoma to send its key
+      // Step 3: send CMD 38 with a fresh random challenge — Path 1 (receiver requests key).
+      // TaHoma is in key-send mode: it waits for CMD 38 and replies with CMD 32.
+      uint8_t our_challenge[HMAC_SIZE];
+      iohome::crypto::generate_challenge(our_challenge);
       IoFrame launch_frame;
-      if (!create_launch_key_transfer(launch_frame, mOwnNodeId, tahoma_node, challenge_item.frame.data)
+      if (!create_launch_key_transfer(launch_frame, mOwnNodeId, tahoma_node, our_challenge)
           || !TransmitFrame(launch_frame, tahoma_freq, SHORT_PREAMBLE_LENGTH))
       {
         IO_LOGE("LearnKeyFromController: failed to send CMD 38");
@@ -1070,7 +1048,7 @@ namespace iohome
       }
       IO_LOGI("LearnKeyFromController: CMD 38 sent — waiting for CMD 32");
 
-      // Step 6: wait for CMD 32 (TaHoma's system key, encrypted with TRANSFER_KEY + CMD 3C challenge)
+      // Step 4: wait for CMD 32 (TaHoma's system key, encrypted with TRANSFER_KEY + our CMD 38 challenge)
       if (!xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS)
           || rxItem.frame.command_id != CMD_KEY_TRANSFER
           || rxItem.frame.data_len != AES_KEY_SIZE)
@@ -1082,10 +1060,10 @@ namespace iohome
       }
       IO_LOGI("LearnKeyFromController: CMD 32 received — decrypting");
 
-      // Step 7: decrypt TaHoma's key using CMD 38 as frame_data and the CMD 3C challenge.
+      // Step 5: decrypt TaHoma's key — frame_data = CMD 38 byte, IV = our random challenge.
       uint8_t cmd38_byte = CMD_LAUNCH_KEY_TRANSFER;
       uint8_t decrypted_key[AES_KEY_SIZE];
-      if (!iohome::crypto::crypt_2w_key(&cmd38_byte, 1, challenge_item.frame.data, rxItem.frame.data, decrypted_key))
+      if (!iohome::crypto::crypt_2w_key(&cmd38_byte, 1, our_challenge, rxItem.frame.data, decrypted_key))
       {
         IO_LOGE("LearnKeyFromController: key decryption failed");
         vTaskPrioritySet(NULL, savedPriority);
