@@ -24,18 +24,28 @@
             });
     }
 
+    function fetchFreshKey() {
+        return fetch("/api/ota/key?" + Date.now(), { cache: "no-store" })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                var key = d.key || "";
+                var display = document.getElementById("ota-key-display");
+                if (display && key) display.value = key;
+                return key;
+            });
+    }
+
     function uploadFirmware(app) {
         var file = app.elements.otaFileInput.files[0];
-        var keyDisplay = document.getElementById("ota-key-display");
-        var key = keyDisplay ? keyDisplay.value.trim() : "";
-
         if (!file) { setStatus(app, "Please select a firmware .bin file.", "red"); return; }
-        if (!key)  { setStatus(app, "OTA key not loaded yet.", "red"); return; }
 
         app.elements.otaUploadButton.disabled = true;
         app.elements.otaProgress.style.display = "";
         app.elements.otaProgress.value = 0;
         setStatus(app, "Uploading…");
+
+        fetchFreshKey().then(function (key) {
+        if (!key) { finishWithError(app, "Could not retrieve OTA key from device."); return; }
 
         var xhr = new XMLHttpRequest();
         xhr.open("POST", "/api/ota");
@@ -74,6 +84,7 @@
         };
 
         xhr.send(file);
+        }); // fetchFreshKey
     }
 
     function fetchAndDisplayKey() {
@@ -244,19 +255,19 @@
         var progress = document.getElementById("ota-web-progress");
         var status = document.getElementById("ota-web-status");
         var btn = document.getElementById("ota-web-upload");
-        var keyDisplay = document.getElementById("ota-key-display");
-        var key = keyDisplay ? keyDisplay.value.trim() : "";
 
         function setErr(msg) { status.textContent = msg; status.style.color = "red"; btn.disabled = false; }
 
         if (!file) { setErr("Please select a web UI .bin file."); return; }
-        if (!key)  { setErr("OTA key not loaded yet."); return; }
 
         btn.disabled = true;
         progress.style.display = "";
         progress.value = 0;
         status.textContent = "Uploading…";
         status.style.color = "";
+
+        fetchFreshKey().then(function (key) {
+        if (!key) { setErr("Could not retrieve OTA key from device."); return; }
 
         var xhr = new XMLHttpRequest();
         xhr.open("POST", "/api/ota/web");
@@ -290,6 +301,7 @@
 
         xhr.onerror = function () { setErr("Network error during upload."); };
         xhr.send(file);
+        }); // fetchFreshKey
     }
 
     function init(app) {

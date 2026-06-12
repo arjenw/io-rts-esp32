@@ -105,9 +105,23 @@
         if (startBtn) startBtn.disabled = true;
         if (dismissBtn) dismissBtn.style.display = "none";
 
-        var otaKey = (document.getElementById("ota-key-display") || {}).value || "";
-
         setProgress("Starting update…", 0);
+
+        fetch("/api/ota/key?" + Date.now(), { cache: "no-store" })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { continueUpdate(d.key || "", firmwareUrl, webUrl); })
+            .catch(function () { continueUpdate("", firmwareUrl, webUrl); });
+    }
+
+    function continueUpdate(otaKey, firmwareUrl, webUrl) {
+        var startBtn = document.getElementById("update-start-btn");
+        var dismissBtn = document.getElementById("update-dismiss");
+        if (!otaKey) {
+            setProgress("Failed: could not retrieve OTA key.", null);
+            if (startBtn) startBtn.disabled = false;
+            if (dismissBtn) dismissBtn.style.display = "";
+            return;
+        }
 
         otaFromUrl(firmwareUrl, "firmware", otaKey, function (s) { setProgress(s, 25); })
         .then(function () {
