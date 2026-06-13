@@ -1,40 +1,4 @@
 (function () {
-    function ensureApiModule() {
-        if (window.MiOpenApi) return;
-        function ensureJson(r) { return r.json().catch(function () { return {}; }); }
-        async function requestJson(url, options) {
-            var opts = options || {};
-            var method = (opts.method || "GET").toUpperCase();
-            var reqUrl = method === "GET" ? url + (url.indexOf("?") === -1 ? "?" : "&") + "_=" + Date.now() : url;
-            if (method === "GET") opts.cache = "no-store";
-            var response = await fetch(reqUrl, opts);
-            var data = await ensureJson(response);
-            if (!response.ok) throw new Error(data.message || ("HTTP error " + response.status));
-            return data;
-        }
-        window.MiOpenApi = {
-            downloadFile: async function (url, filename) {
-                var r = await fetch(url);
-                if (!r.ok) throw new Error("Network response was not ok");
-                var blob = await r.blob();
-                var a = document.createElement("a");
-                a.href = window.URL.createObjectURL(blob);
-                a.download = filename;
-                a.click();
-                window.URL.revokeObjectURL(a.href);
-            },
-            postJson: function (url, payload) {
-                return requestJson(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-            },
-            requestJson: requestJson,
-            uploadFile: function (url, file) {
-                var fd = new FormData();
-                fd.append("file", file);
-                return requestJson(url, { method: "POST", body: fd });
-            }
-        };
-    }
-
     function createElements() {
         return {
             deviceList:           document.getElementById("device-list"),
@@ -292,7 +256,6 @@
     }
 
     document.addEventListener("DOMContentLoaded", function () {
-        ensureApiModule();
         initTheme();
 
         var app = {
@@ -333,11 +296,18 @@
             app.fetchAndDisplayRemotes();
         });
 
+        fetch("/api/ota/key?" + Date.now(), { cache: "no-store" })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (d.key) window.MiOpenApi.otaKey = d.key; })
+            .catch(function () {});
+
         fetch("/api/info?" + Date.now(), { cache: "no-store" })
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 var el = document.getElementById("firmware-version");
                 if (el) el.textContent = d.version + " · " + d.compile_date;
+                var wel = document.getElementById("web-version");
+                if (wel) wel.textContent = d.web_version || "unknown";
                 if (window.MiOpenUpdater) window.MiOpenUpdater.init(d.version);
             })
             .catch(function () {});

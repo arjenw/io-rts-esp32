@@ -45,9 +45,9 @@ namespace Helpers
         /// @return pointer to IoRtsManager instance
         IoRts::IoRtsManager *GetIoRtsManager() { return mIoRtsManager; }
 
-        /// @brief Returns IO Home passive mode
+        /// @brief Returns IO Home passive mode (live read from config, reflects runtime changes)
         /// @return true if IO Home is in passive mode
-        bool isIoHomePassive() { return mIsIoHomePassive; }
+        bool isIoHomePassive();
 
         /// @brief Send log message to MQTT topic
         /// @param log log message to send
@@ -87,7 +87,7 @@ namespace Helpers
         bool mStarted;                              // true if client is started
         bool mMqttConnected = false;                // true while broker connection is active
         MqttState mMqttState = MqttState::DISABLED; // current connection state for API/UI reporting
-        bool mIsIoHomePassive;                      // true if IO Home is in passive mode
+        // mIsIoHomePassive removed — use IoHomeConfig::isPassiveModeEnabled() for live reads
         std::string mTopicPrefix;                   // Topic prefix, initialized from configuration storage at boot (avoid to read it from storage everytime!)
         std::string mDiscoveryPrefix;               // Discovery prefix, initialized from configuration storage at boot (avoid to read it from storage everytime!)
         esp_mqtt_client_handle_t mMqttClientHandle; // Handle on MQTT client

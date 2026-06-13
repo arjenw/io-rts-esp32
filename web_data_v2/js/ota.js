@@ -14,7 +14,7 @@
 
     function pollUntilOnline(onDone, onTimeout, deadline) {
         if (Date.now() > deadline) { onTimeout(); return; }
-        fetch("/api/devices?" + Date.now(), { cache: "no-store" })
+        fetch("/api/info?" + Date.now(), { cache: "no-store" })
             .then(function (r) {
                 if (r.ok) { onDone(); }
                 else { setTimeout(function () { pollUntilOnline(onDone, onTimeout, deadline); }, POLL_INTERVAL); }
@@ -24,18 +24,28 @@
             });
     }
 
+    function fetchFreshKey() {
+        return fetch("/api/ota/key?" + Date.now(), { cache: "no-store" })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                var key = d.key || "";
+                var display = document.getElementById("ota-key-display");
+                if (display && key) display.value = key;
+                return key;
+            });
+    }
+
     function uploadFirmware(app) {
         var file = app.elements.otaFileInput.files[0];
-        var keyDisplay = document.getElementById("ota-key-display");
-        var key = keyDisplay ? keyDisplay.value.trim() : "";
-
         if (!file) { setStatus(app, "Please select a firmware .bin file.", "red"); return; }
-        if (!key)  { setStatus(app, "OTA key not loaded yet.", "red"); return; }
 
         app.elements.otaUploadButton.disabled = true;
         app.elements.otaProgress.style.display = "";
         app.elements.otaProgress.value = 0;
         setStatus(app, "Uploading…");
+
+        fetchFreshKey().then(function (key) {
+        if (!key) { finishWithError(app, "Could not retrieve OTA key from device."); return; }
 
         var xhr = new XMLHttpRequest();
         xhr.open("POST", "/api/ota");
@@ -53,7 +63,10 @@
                 app.elements.otaProgress.value = 100;
                 setStatus(app, "Rebooting…");
                 pollUntilOnline(
-                    function () { setStatus(app, "Done — device is back online.", "green"); app.elements.otaUploadButton.disabled = false; },
+                    function () {
+                        setStatus(app, "Done — reloading…", "green");
+                        setTimeout(function () { location.reload(); }, 1500);
+                    },
                     function () { finishWithError(app, "Timed out waiting for device to come back online."); },
                     Date.now() + POLL_TIMEOUT
                 );
@@ -71,6 +84,7 @@
         };
 
         xhr.send(file);
+        }); // fetchFreshKey
     }
 
     function fetchAndDisplayKey() {
@@ -241,19 +255,19 @@
         var progress = document.getElementById("ota-web-progress");
         var status = document.getElementById("ota-web-status");
         var btn = document.getElementById("ota-web-upload");
-        var keyDisplay = document.getElementById("ota-key-display");
-        var key = keyDisplay ? keyDisplay.value.trim() : "";
 
         function setErr(msg) { status.textContent = msg; status.style.color = "red"; btn.disabled = false; }
 
         if (!file) { setErr("Please select a web UI .bin file."); return; }
-        if (!key)  { setErr("OTA key not loaded yet."); return; }
 
         btn.disabled = true;
         progress.style.display = "";
         progress.value = 0;
         status.textContent = "Uploading…";
         status.style.color = "";
+
+        fetchFreshKey().then(function (key) {
+        if (!key) { setErr("Could not retrieve OTA key from device."); return; }
 
         var xhr = new XMLHttpRequest();
         xhr.open("POST", "/api/ota/web");
@@ -270,7 +284,24 @@
                 status.textContent = "Rebooting…";
                 status.style.color = "";
                 pollUntilOnline(
-                    function () { status.textContent = "Done — device is back online."; status.style.color = "green"; btn.disabled = false; },
+                    function () {
+                        fetch("/api/info?" + Date.now(), { cache: "no-store" })
+                            .then(function (r) { return r.json(); })
+                            .then(function (info) {
+                                var ver = info.web_version || "?";
+                                status.textContent = "Web UI updated to " + ver + " — reloading…";
+                                status.style.color = "green";
+                                var wel = document.getElementById("web-version");
+                                if (wel) wel.textContent = ver;
+                            })
+                            .catch(function () {
+                                status.textContent = "Done — reloading…";
+                                status.style.color = "green";
+                            })
+                            .finally(function () {
+                                setTimeout(function () { location.reload(); }, 1500);
+                            });
+                    },
                     function () { setErr("Timed out waiting for device to come back online."); },
                     Date.now() + POLL_TIMEOUT
                 );
@@ -283,6 +314,7 @@
 
         xhr.onerror = function () { setErr("Network error during upload."); };
         xhr.send(file);
+        }); // fetchFreshKey
     }
 
     function init(app) {

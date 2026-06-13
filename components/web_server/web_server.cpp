@@ -190,8 +190,14 @@ static esp_err_t ws_handler(httpd_req_t *req)
 
     if (is_new) {
         s_diag_last_fd = fd;
+        bool stored = false;
         for (int i = 0; i < WS_MAX_CLIENTS; i++) {
-            if (s_ws_fds[i] == -1) { s_ws_fds[i] = fd; break; }
+            if (s_ws_fds[i] == -1) { s_ws_fds[i] = fd; stored = true; break; }
+        }
+        if (!stored) {
+            ESP_LOGW(TAG, "ws: max clients reached, rejecting fd=%d", fd);
+            if (fd >= 0) httpd_sess_trigger_close(req->handle, fd);
+            return ESP_OK;
         }
         // Drain the trigger frame (browser sends {"type":"hello"} on open)
         httpd_ws_frame_t hello = {};
@@ -211,10 +217,11 @@ static esp_err_t ws_handler(httpd_req_t *req)
     if (err != ESP_OK) {
         s_diag_recv_err = (int)err;
         s_diag_recv_fd  = fd;
-        ESP_LOGW(TAG, "WS recv err fd=%d: %s", fd, esp_err_to_name(err));
+        ESP_LOGW(TAG, "WS recv err fd=%d: %s — closing session", fd, esp_err_to_name(err));
         for (int i = 0; i < WS_MAX_CLIENTS; i++)
             if (s_ws_fds[i] == fd) { s_ws_fds[i] = -1; break; }
-        return err;
+        if (fd >= 0) httpd_sess_trigger_close(req->handle, fd);
+        return ESP_OK;
     }
     if (frame.len > 0) {
         uint8_t *buf = (uint8_t *)malloc(frame.len + 1);
@@ -468,6 +475,12 @@ static esp_err_t api_action_post(httpd_req_t *req)
     const char *action   = cJSON_IsString(jAction)   ? jAction->valuestring   : "";
     const char *deviceId = cJSON_IsString(jDeviceId) ? jDeviceId->valuestring : "";
     int value = cJSON_IsNumber(jValue) ? (int)jValue->valuedouble : -1;
+
+    if (!s_manager->mIoHome) {
+        cJSON_Delete(json);
+        send_result(req, false, "Radio not initialised");
+        return ESP_OK;
+    }
 
     bool ok = false;
 
@@ -1237,6 +1250,14 @@ static esp_err_t api_ota_url_post(httpd_req_t *req)
         int n = esp_http_client_read(client, buf, sizeof(buf));
         if (n < 0) { write_err = true; break; }
         if (n == 0) break;
+        if (!is_web && total == 0 && n > 0 && (uint8_t)buf[0] != 0xE9) {
+            ESP_LOGE(TAG, "OTA URL: bad magic 0x%02x — aborting", (uint8_t)buf[0]);
+            esp_ota_abort(ota_handle);
+            esp_http_client_close(client);
+            esp_http_client_cleanup(client);
+            send_result(req, false, "Wrong file — server returned an invalid firmware image (bad magic byte)");
+            return ESP_OK;
+        }
         err = is_web ? esp_partition_write(web_part, total, buf, n)
                      : esp_ota_write(ota_handle, buf, n);
         if (err != ESP_OK) { write_err = true; break; }
@@ -1288,6 +1309,7 @@ static esp_err_t api_syslog_get(httpd_req_t *req)
 
 static esp_err_t api_syslog_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char *body = nullptr;
     if (read_body(req, &body) != ESP_OK) {
         send_result(req, false, "Failed to read body");
@@ -1331,6 +1353,7 @@ static esp_err_t api_syslog_post(httpd_req_t *req)
 
 static esp_err_t api_reboot_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     ESP_LOGI(TAG, "Reboot requested via web");
     send_result(req, true, "Rebooting");
     esp_timer_handle_t t;
@@ -1358,6 +1381,7 @@ static esp_err_t api_io_key_get(httpd_req_t *req)
 
 static esp_err_t api_io_key_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char *body = nullptr;
     if (read_body(req, &body) != ESP_OK) { send_result(req, false, "Failed to read body"); return ESP_OK; }
 
@@ -1469,11 +1493,15 @@ static esp_err_t api_io_config_post(httpd_req_t *req)
     }
 
     cJSON *jPassive = cJSON_GetObjectItem(json, "passive_mode");
-    if (cJSON_IsBool(jPassive))
-        Config::IoHomeConfig::ActivatePassiveMode(cJSON_IsTrue(jPassive));
+    if (cJSON_IsBool(jPassive)) {
+        bool passive = cJSON_IsTrue(jPassive);
+        Config::IoHomeConfig::ActivatePassiveMode(passive);
+        if (s_manager && s_manager->mIoHome)
+            s_manager->mIoHome->SetPassiveMode(passive);
+    }
 
     cJSON_Delete(json);
-    send_result(req, true, "IO config saved — reboot to apply");
+    send_result(req, true, "IO config saved");
     return ESP_OK;
 }
 
@@ -1481,6 +1509,7 @@ static esp_err_t api_io_config_post(httpd_req_t *req)
 
 static esp_err_t api_misc_password_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char *body = nullptr;
     if (read_body(req, &body) != ESP_OK) { send_result(req, false, "Failed to read body"); return ESP_OK; }
 
@@ -1542,6 +1571,7 @@ static esp_err_t api_network_config_get(httpd_req_t *req)
 
 static esp_err_t api_network_config_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char *body = nullptr;
     if (read_body(req, &body) != ESP_OK) { send_result(req, false, "Failed to read body"); return ESP_OK; }
 
@@ -1589,9 +1619,13 @@ static esp_err_t read_multipart_content(httpd_req_t *req, char **out)
     char *body = (char *)malloc(body_len + 1);
     if (!body) return ESP_ERR_NO_MEM;
 
-    int n = httpd_req_recv(req, body, body_len);
-    if (n <= 0) { free(body); return ESP_FAIL; }
-    body[n] = '\0';
+    size_t received = 0;
+    while (received < body_len) {
+        int n = httpd_req_recv(req, body + received, body_len - received);
+        if (n <= 0) { free(body); return ESP_FAIL; }
+        received += n;
+    }
+    body[received] = '\0';
 
     // Find end of part headers (\r\n\r\n)
     const char *content_start = strstr(body, "\r\n\r\n");
@@ -1780,16 +1814,17 @@ static esp_err_t api_upload_devices(httpd_req_t *req)
         if (!json_to_stored_device(item, deviceID, sd)) continue;
 
         Helpers::DeviceStorage::SaveIoDevice(deviceID, sd);
-        s_manager->mIoHome->RestoreDevice(deviceID, sd.device);
+        if (s_manager->mIoHome) {
+            s_manager->mIoHome->RestoreDevice(deviceID, sd.device);
+            for (const std::string &remoteID : sd.linked_remotes)
+                s_manager->mIoHome->LinkRemoteToDevice(remoteID, deviceID);
+        }
 
         s_manager->mIoDevicesMutex.lock();
         auto it = s_manager->mIoDevices.find(deviceID);
         if (it != s_manager->mIoDevices.end()) it->second = sd.device;
         else s_manager->mIoDevices.insert({deviceID, sd.device});
         s_manager->mIoDevicesMutex.unlock();
-
-        for (const std::string &remoteID : sd.linked_remotes)
-            s_manager->mIoHome->LinkRemoteToDevice(remoteID, deviceID);
 
         count++;
     }
@@ -1850,6 +1885,21 @@ static esp_err_t api_info_get(httpd_req_t *req)
     cJSON_AddStringToObject(obj, "compile_date", desc->date);
     cJSON_AddStringToObject(obj, "compile_time", desc->time);
     cJSON_AddStringToObject(obj, "idf_ver",      desc->idf_ver);
+
+    FILE *vf = fopen(WEB_BASE_PATH "/version.json", "r");
+    if (vf) {
+        char buf[64] = {};
+        fread(buf, 1, sizeof(buf) - 1, vf);
+        fclose(vf);
+        cJSON *vj = cJSON_Parse(buf);
+        if (vj) {
+            cJSON *ver = cJSON_GetObjectItem(vj, "version");
+            if (cJSON_IsString(ver))
+                cJSON_AddStringToObject(obj, "web_version", ver->valuestring);
+            cJSON_Delete(vj);
+        }
+    }
+
     send_json(req, obj);
     return ESP_OK;
 }
@@ -1934,6 +1984,12 @@ static bool s_pairing_active = false;
 static void pairing_task(void *)
 {
     ESP_LOGI(TAG, "Pairing task started");
+    if (!s_manager->mIoHome) {
+        s_pairing_active = false;
+        web_server_broadcast_message("{\"type\":\"pair_failed\"}");
+        vTaskDelete(nullptr);
+        return;
+    }
     const int MAX_ATTEMPTS = 60; // 60 × ~2 s = ~120 s window
     bool ok = false;
     int heartbeat_counter = 0;
@@ -1987,19 +2043,13 @@ static bool s_learn_active = false;
 static void learn_task(void *)
 {
     ESP_LOGI(TAG, "Key learn task started — waiting for controller");
-    const int MAX_ATTEMPTS = 60; // 60 × ~2 s ≈ 120 s window
-    std::string key;
-    for (int attempt = 0; attempt < MAX_ATTEMPTS && s_learn_active; attempt++)
-    {
-        key = s_manager->mIoHome->LearnKeyFromController();
-        if (!key.empty()) break;
-        if ((attempt % 5) == 4) {
-            int remaining_s = (MAX_ATTEMPTS - attempt - 1) * 2;
-            char buf[72];
-            snprintf(buf, sizeof(buf), "{\"type\":\"learn_active\",\"remaining_s\":%d}", remaining_s);
-            web_server_broadcast_message(buf);
-        }
+    if (!s_manager->mIoHome) {
+        s_learn_active = false;
+        web_server_broadcast_message("{\"type\":\"learn_failed\"}");
+        vTaskDelete(nullptr);
+        return;
     }
+    std::string key = s_manager->mIoHome->LearnKeyFromController(&s_learn_active);
     s_learn_active = false;
     if (key.empty()) {
         ESP_LOGW(TAG, "Key learn timed out");
@@ -2048,19 +2098,13 @@ static bool s_pair_device_active = false;
 static void pair_device_task(void *)
 {
     ESP_LOGI(TAG, "Pair-as-device task started — waiting for TaHoma broadcast CMD 28");
-    const int MAX_ATTEMPTS = 60; // 60 × ~2 s ≈ 120 s window
-    std::string key;
-    for (int attempt = 0; attempt < MAX_ATTEMPTS && s_pair_device_active; attempt++)
-    {
-        key = s_manager->mIoHome->PairAsDevice();
-        if (!key.empty()) break;
-        if ((attempt % 5) == 4) {
-            int remaining_s = (MAX_ATTEMPTS - attempt - 1) * 2;
-            char buf[80];
-            snprintf(buf, sizeof(buf), "{\"type\":\"pair_device_active\",\"remaining_s\":%d}", remaining_s);
-            web_server_broadcast_message(buf);
-        }
+    if (!s_manager->mIoHome) {
+        s_pair_device_active = false;
+        web_server_broadcast_message("{\"type\":\"pair_device_failed\"}");
+        vTaskDelete(nullptr);
+        return;
     }
+    std::string key = s_manager->mIoHome->PairAsDevice(&s_pair_device_active);
     s_pair_device_active = false;
     if (key.empty()) {
         ESP_LOGW(TAG, "Pair-as-device timed out");
@@ -2290,6 +2334,9 @@ void web_server_start(void *ioRtsManager)
     config.task_priority = tskIDLE_PRIORITY + 3; // below radio (8), IO processing (6), status updates (4)
     config.max_uri_handlers = 48;
     config.max_open_sockets = 13; // browser opens many parallel connections for static files + WS
+    config.send_wait_timeout = 2;  // seconds; cap blocking sends to dead clients
+    config.recv_wait_timeout = 2;
+    config.lru_purge_enable  = true; // evict oldest socket when table is full
     config.uri_match_fn = httpd_uri_match_wildcard;
     config.enable_so_linger = false;
 
