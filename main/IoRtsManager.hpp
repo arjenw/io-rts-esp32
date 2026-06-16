@@ -98,6 +98,9 @@ namespace IoRts
         /// @brief Start MQTT client immediately (if enabled and not already started)
         void TriggerMqttStart();
 
+        /// @brief Restart MQTT client with current NVS config — safe to call when already running
+        void TriggerMqttRestart();
+
     private:
         bool mIoPassive = false; // current configuration, initialized at boot
 

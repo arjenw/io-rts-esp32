@@ -695,12 +695,18 @@ static esp_err_t api_mqtt_post(httpd_req_t *req)
         int p = atoi(jPort->valuestring);
         if (p > 0) Config::MqttConfig::SetBrokerPort((uint16_t)p);
     }
+    bool anyChanged = !user.empty() || !server.empty() || !password.empty() ||
+                      !client_id.empty() || !topic.empty() || !discovery.empty() ||
+                      cJSON_IsNumber(jPort) || cJSON_IsString(jPort);
     cJSON *jEnabled = cJSON_GetObjectItem(json, "enabled");
     if (cJSON_IsBool(jEnabled)) {
         Config::MqttConfig::Activate(cJSON_IsTrue(jEnabled));
-        if (cJSON_IsTrue(jEnabled) && s_manager != nullptr)
-            s_manager->TriggerMqttStart();
+        anyChanged = true;
     }
+
+    // Restart MQTT client whenever config changes so new settings take effect immediately
+    if (anyChanged && s_manager != nullptr)
+        s_manager->TriggerMqttRestart();
 
     cJSON_Delete(json);
     send_result(req, true, "MQTT config saved.");

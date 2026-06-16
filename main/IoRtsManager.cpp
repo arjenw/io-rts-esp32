@@ -539,6 +539,12 @@ namespace IoRts
             sMqttHelper->StartMqttClient();
     }
 
+    void IoRtsManager::TriggerMqttRestart()
+    {
+        if (sMqttHelper != nullptr)
+            sMqttHelper->RestartMqttClient();
+    }
+
     void IoRtsManager::InitializeIo()
     {
         mIoPassive = IoHomeConfig::isPassiveModeEnabled();
