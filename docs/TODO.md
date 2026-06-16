@@ -81,6 +81,28 @@ Toggle in Settings → MQTT to disable the MQTT client without clearing config. 
 
 ---
 
+## Web UI — Grey out unavailable actions in passive mode
+
+When passive mode is enabled, all actions that transmit RF (key learn, device control, pairing, identify) are blocked by the firmware but the UI shows them as fully active. Each affected button/control should be visually greyed out and show a tooltip or status line explaining passive mode is the reason.
+
+Reference: `Config::IoHomeConfig::isPassiveModeEnabled()` is already exposed in `GET /api/settings` as `passive_mode`. The UI can read this on load and apply a `disabled` state to the relevant controls.
+
+---
+
+## Web UI — Restyle the reboot menu
+
+The reboot/restart menu is visually out of place — it does not match the style of the rest of the UI. Needs a redesign to align with the existing component patterns (button styles, modal layout, colour scheme).
+
+---
+
+## Partition layout — resize web and device partitions
+
+The web partition (0x47000 = 284 KB) is nearly full; the LittleFS image currently uses all 71 available blocks with zero headroom. Adding a comment to a JS file was enough to overflow it. Review and rebalance the partition table to give the web partition more room without sacrificing OTA or device storage.
+
+Partition table is in `partitions.csv`. Affected partitions: `web` (littlefs), `devices` (littlefs), `ota_0`, `ota_1`. Any resize requires regenerating the full flash image and a full reflash (not OTA-only).
+
+---
+
 ## Node.js 24 action upgrades
 
 `actions/checkout@v4` and `softprops/action-gh-release@v2` will stop working on September 16, 2026 when GitHub removes Node.js 20 from runners. Upgrade both actions to Node.js 24 compatible versions before that date.

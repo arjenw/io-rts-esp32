@@ -112,7 +112,6 @@
         try {
             const wr = await window.MiOpenApi.postJson("/api/wifi/config", payload);
             if (wr.status === "restarting") {
-                // success — fall through to reconnect poll
             } else if (!wr.success) {
                 showToast(wr.message || "WiFi save failed.", "error");
                 return;
@@ -167,7 +166,6 @@
             } else {
                 showToast(enabled ? "MQTT settings saved." : "MQTT settings saved. Reboot to fully disconnect.", "success");
             }
-            // After enabling, check whether the client actually started or reboot is needed
             setTimeout(async function () {
                 try {
                     var cfg = await window.MiOpenApi.requestJson("/api/mqtt");
@@ -194,8 +192,6 @@
             showToast(error.message || "Upload failed.", "error");
         }
     }
-
-    // ── Network Config (hostname / DHCP / static IP) ─────────────────────────
 
     async function loadNetworkConfig(app) {
         try {
@@ -257,8 +253,6 @@
         loadNetworkConfig(app);
     }
 
-    // ── IO Controller Config ──────────────────────────────────────────────────
-
     async function loadIoConfig(app) {
         try {
             const r = await window.MiOpenApi.requestJson("/api/io/config");
@@ -311,8 +305,6 @@
         loadIoConfig(app);
     }
 
-    // ── Access Password ───────────────────────────────────────────────────────
-
     function initAccessPassword(app) {
         app.elements.accessPasswordNew     = g("access-password-new");
         app.elements.accessPasswordConfirm = g("access-password-confirm");
@@ -336,8 +328,6 @@
             }
         });
     }
-
-    // ── IO System Key ─────────────────────────────────────────────────────────
 
     let sniffPollTimer = null;
     let sniffCountdownTimer = null;
@@ -580,7 +570,6 @@
         initIoKey(app);
         initReboot();
 
-        // Update channel toggle
         var betaCheckbox = g("update-channel-beta");
         var betaLabel = g("update-channel-label");
         var betaToggle = g("update-channel-toggle");
@@ -664,7 +653,6 @@
 
         var reloadInProgress = false;
         function reloadSettings() {
-            // Cancel any in-progress modal operations
             stopSniffPoll();
             if (learnCountdownTimer) { clearInterval(learnCountdownTimer); learnCountdownTimer = null; }
             if (pairDeviceCountdownTimer) { clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null; }
@@ -713,8 +701,6 @@
         g("io-sniff-use-key").dataset.key = key;
         g("io-sniff-use-key").style.display = "";
     }
-
-    // ── IO Key Learn (receive key from TaHoma / Connectivity Kit) ────────────
 
     let learnCountdownTimer = null;
     let learnSecondsLeft = 0;
@@ -811,8 +797,6 @@
         });
     }
 
-    // ── Pair as Device (receive key via TaHoma "Add device" flow) ────────────
-
     let pairDeviceCountdownTimer = null;
     let pairDeviceSecondsLeft = 0;
 
@@ -907,8 +891,6 @@
         });
     }
 
-    // ── Send Key observation ──────────────────────────────────────────────────
-
     let sendKeyTimer = null;
     let sendKeySeconds = 0;
 
@@ -984,37 +966,37 @@
 (function () {
     var _pingInterval = null;
 
-    function showPingStatus(html) {
-        var el = document.getElementById("syslog-ping-status");
+    function updateSyslogStatusEl(status, extra) {
+        var el = document.getElementById("syslog-conn-status");
         if (!el) return;
-        el.style.display = "";
-        el.innerHTML = html;
-    }
-
-    function hidePingStatus() {
-        var el = document.getElementById("syslog-ping-status");
-        if (el) el.style.display = "none";
+        var map = {
+            checking:    { text: "\u25cc Checking…",  color: "#888" },
+            reachable:   { text: "\u25cf Reachable",   color: "#27ae60" },
+            unreachable: { text: "\u25cb Unreachable", color: "#e74c3c" },
+            disabled:    { text: "",              color: "" },
+            error:       { text: "\u2715 Error",       color: "#e74c3c" },
+        };
+        var s = map[status] || { text: "\u25cb " + status, color: "#888" };
+        if (status === "reachable" && extra != null) s.text += " (" + extra + "\u00a0ms)";
+        el.textContent = s.text;
+        el.style.color = s.color;
     }
 
     function stopPingPolling() {
         if (_pingInterval) { clearInterval(_pingInterval); _pingInterval = null; }
     }
 
-    async function pingAndShowStatus() {
-        showPingStatus("⏳ Checking server&hellip;");
+    async function pingAndUpdateStatus() {
+        updateSyslogStatusEl("checking");
         try {
             var r = await window.MiOpenApi.postJson("/api/syslog/ping");
             if (r.reachable) {
-                showPingStatus('<span style="color:#2d9e2d">&#9679; Server reached' +
-                    (r.latency_ms != null ? " (" + r.latency_ms + " ms)" : "") + "</span>");
+                updateSyslogStatusEl("reachable", r.latency_ms);
             } else {
-                showPingStatus('<span style="color:#c0392b">&#9679; ' +
-                    (r.message || "Server unreachable") +
-                    " — check the IP address and network connectivity." +
-                    " Note: some servers block ICMP ping even when reachable.</span>");
+                updateSyslogStatusEl("unreachable");
             }
         } catch (e) {
-            showPingStatus('<span style="color:#c0392b">&#9679; Ping failed: ' + (e.message || e) + "</span>");
+            updateSyslogStatusEl("error");
         }
     }
 
@@ -1022,8 +1004,8 @@
         stopPingPolling();
         if (!app.elements.syslogEnabledInput.checked ||
             !app.elements.syslogServerInput.value.trim()) return;
-        pingAndShowStatus();
-        _pingInterval = setInterval(pingAndShowStatus, 30 * 60 * 1000);
+        pingAndUpdateStatus();
+        _pingInterval = setInterval(pingAndUpdateStatus, 30 * 60 * 1000);
     }
 
     async function loadSyslogConfig(app) {
@@ -1037,7 +1019,7 @@
             app.elements.syslogMinLevelInput.value     = cfg.min_level != null ? String(cfg.min_level) : "7";
             app.elements.syslogIdInput.value           = cfg.id        || "";
             if (cfg.enabled && cfg.server) startPingPolling(app);
-            else { stopPingPolling(); hidePingStatus(); }
+            else { stopPingPolling(); updateSyslogStatusEl("disabled"); }
         } catch (error) {
             console.error("Error fetching syslog config", error);
         }
@@ -1058,7 +1040,7 @@
             if (!result.success) { showToast(result.message || "Syslog save failed.", "error"); return; }
             showToast(result.message || "Syslog settings saved.", "success");
             if (payload.enabled && payload.server) startPingPolling(app);
-            else { stopPingPolling(); hidePingStatus(); }
+            else { stopPingPolling(); updateSyslogStatusEl("disabled"); }
         } catch (error) {
             showToast("Error saving syslog config: " + (error.message || error), "error");
         }
@@ -1069,12 +1051,10 @@
         app.loadSyslogConfig   = function () { return loadSyslogConfig(app); };
         app.updateSyslogConfig = function () { return updateSyslogConfig(app); };
 
-        // Phase 4: hide status and stop polling when toggle is turned off
         app.elements.syslogEnabledInput.addEventListener("change", function () {
-            if (!this.checked) { stopPingPolling(); hidePingStatus(); }
+            if (!this.checked) { stopPingPolling(); updateSyslogStatusEl("disabled"); }
         });
 
-        // Restart polling when settings tab is shown
         document.addEventListener("viewShown", function (e) {
             if (e.detail && e.detail.view === "settings") {
                 if (app.elements.syslogEnabledInput.checked &&
