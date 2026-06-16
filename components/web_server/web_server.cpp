@@ -18,6 +18,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 #include <format>
 #include <list>
 #include <cmath>
@@ -25,6 +26,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "ping/ping_sock.h"
+#include "lwip/inet.h"
 
 #include "DeviceStorage.hpp"
 #include "syslog.h"
@@ -1349,6 +1353,106 @@ static esp_err_t api_syslog_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// ─── POST /api/syslog/ping ──────────────────────────────────────────────────
+
+struct SyslogPingResult {
+    SemaphoreHandle_t sem;
+    bool reachable;
+    uint32_t latency_ms;
+};
+
+static void syslog_ping_success_cb(esp_ping_handle_t hdl, void *args)
+{
+    auto *r = static_cast<SyslogPingResult *>(args);
+    esp_ping_get_profile(hdl, ESP_PING_PROF_TIMEGAP, &r->latency_ms, sizeof(r->latency_ms));
+    r->reachable = true;
+    xSemaphoreGive(r->sem);
+}
+
+static void syslog_ping_timeout_cb(esp_ping_handle_t hdl, void *args)
+{
+    auto *r = static_cast<SyslogPingResult *>(args);
+    r->reachable = false;
+    xSemaphoreGive(r->sem);
+}
+
+static esp_err_t api_syslog_ping_post(httpd_req_t *req)
+{
+    std::string server = Config::SyslogConfig::GetServer();
+    if (!Config::SyslogConfig::isEnabled() || server.empty()) {
+        cJSON *obj = cJSON_CreateObject();
+        cJSON_AddBoolToObject(obj, "reachable", false);
+        cJSON_AddStringToObject(obj, "message", "Syslog not configured");
+        send_json(req, obj);
+        return ESP_OK;
+    }
+
+    // Resolve server address
+    struct addrinfo hints = {};
+    hints.ai_family   = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    struct addrinfo *res = nullptr;
+    if (getaddrinfo(server.c_str(), nullptr, &hints, &res) != 0 || !res) {
+        cJSON *obj = cJSON_CreateObject();
+        cJSON_AddBoolToObject(obj, "reachable", false);
+        cJSON_AddStringToObject(obj, "message", "Cannot resolve server address");
+        send_json(req, obj);
+        return ESP_OK;
+    }
+    ip_addr_t target;
+    auto *sin = reinterpret_cast<struct sockaddr_in *>(res->ai_addr);
+    ip4_addr_set_u32(ip_2_ip4(&target), sin->sin_addr.s_addr);
+    IP_SET_TYPE_VAL(target, IPADDR_TYPE_V4);
+    freeaddrinfo(res);
+
+    SyslogPingResult result = {};
+    result.sem = xSemaphoreCreateBinary();
+    if (!result.sem) {
+        cJSON *obj = cJSON_CreateObject();
+        cJSON_AddBoolToObject(obj, "reachable", false);
+        cJSON_AddStringToObject(obj, "message", "Internal error");
+        send_json(req, obj);
+        return ESP_OK;
+    }
+
+    esp_ping_config_t cfg = ESP_PING_DEFAULT_CONFIG();
+    cfg.target_addr  = target;
+    cfg.count        = 1;
+    cfg.timeout_ms   = 3000;
+    cfg.task_stack_size = 4096;
+
+    esp_ping_callbacks_t cbs = {};
+    cbs.cb_args        = &result;
+    cbs.on_ping_success = syslog_ping_success_cb;
+    cbs.on_ping_timeout = syslog_ping_timeout_cb;
+
+    esp_ping_handle_t hdl = nullptr;
+    if (esp_ping_new_session(&cfg, &cbs, &hdl) != ESP_OK) {
+        vSemaphoreDelete(result.sem);
+        cJSON *obj = cJSON_CreateObject();
+        cJSON_AddBoolToObject(obj, "reachable", false);
+        cJSON_AddStringToObject(obj, "message", "Failed to start ping");
+        send_json(req, obj);
+        return ESP_OK;
+    }
+
+    esp_ping_start(hdl);
+    // Block until success or timeout callback fires (max 4 s)
+    xSemaphoreTake(result.sem, pdMS_TO_TICKS(4000));
+    esp_ping_stop(hdl);
+    esp_ping_delete_session(hdl);
+    vSemaphoreDelete(result.sem);
+
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddBoolToObject(obj, "reachable", result.reachable);
+    if (result.reachable)
+        cJSON_AddNumberToObject(obj, "latency_ms", result.latency_ms);
+    else
+        cJSON_AddStringToObject(obj, "message", "No response within 3 seconds");
+    send_json(req, obj);
+    return ESP_OK;
+}
+
 // ─── POST /api/reboot ───────────────────────────────────────────────────────
 
 static esp_err_t api_reboot_post(httpd_req_t *req)
@@ -2428,6 +2532,7 @@ void web_server_start(void *ioRtsManager)
     reg("/api/mqtt",              HTTP_POST, api_mqtt_post);
     reg("/api/syslog",            HTTP_GET,  api_syslog_get);
     reg("/api/syslog",            HTTP_POST, api_syslog_post);
+    reg("/api/syslog/ping",       HTTP_POST, api_syslog_ping_post);
     reg("/api/download/devices",  HTTP_GET,  api_download_devices);
     reg("/api/download/remotes",  HTTP_GET,  api_download_remotes);
     reg("/api/upload/devices",    HTTP_POST, api_upload_devices);

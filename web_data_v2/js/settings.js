@@ -982,6 +982,50 @@
 
 // ── Syslog (settings section) ─────────────────────────────────────────────────
 (function () {
+    var _pingInterval = null;
+
+    function showPingStatus(html) {
+        var el = document.getElementById("syslog-ping-status");
+        if (!el) return;
+        el.style.display = "";
+        el.innerHTML = html;
+    }
+
+    function hidePingStatus() {
+        var el = document.getElementById("syslog-ping-status");
+        if (el) el.style.display = "none";
+    }
+
+    function stopPingPolling() {
+        if (_pingInterval) { clearInterval(_pingInterval); _pingInterval = null; }
+    }
+
+    async function pingAndShowStatus() {
+        showPingStatus("⏳ Checking server&hellip;");
+        try {
+            var r = await window.MiOpenApi.postJson("/api/syslog/ping");
+            if (r.reachable) {
+                showPingStatus('<span style="color:#2d9e2d">&#9679; Server reached' +
+                    (r.latency_ms != null ? " (" + r.latency_ms + " ms)" : "") + "</span>");
+            } else {
+                showPingStatus('<span style="color:#c0392b">&#9679; ' +
+                    (r.message || "Server unreachable") +
+                    " — check the IP address and network connectivity." +
+                    " Note: some servers block ICMP ping even when reachable.</span>");
+            }
+        } catch (e) {
+            showPingStatus('<span style="color:#c0392b">&#9679; Ping failed: ' + (e.message || e) + "</span>");
+        }
+    }
+
+    function startPingPolling(app) {
+        stopPingPolling();
+        if (!app.elements.syslogEnabledInput.checked ||
+            !app.elements.syslogServerInput.value.trim()) return;
+        pingAndShowStatus();
+        _pingInterval = setInterval(pingAndShowStatus, 30 * 60 * 1000);
+    }
+
     async function loadSyslogConfig(app) {
         try {
             const cfg = await window.MiOpenApi.requestJson("/api/syslog");
@@ -992,6 +1036,8 @@
             app.elements.syslogFacilityInput.value     = cfg.facility  != null ? cfg.facility : "1";
             app.elements.syslogMinLevelInput.value     = cfg.min_level != null ? String(cfg.min_level) : "7";
             app.elements.syslogIdInput.value           = cfg.id        || "";
+            if (cfg.enabled && cfg.server) startPingPolling(app);
+            else { stopPingPolling(); hidePingStatus(); }
         } catch (error) {
             console.error("Error fetching syslog config", error);
         }
@@ -1011,6 +1057,8 @@
             const result = await window.MiOpenApi.postJson("/api/syslog", payload);
             if (!result.success) { showToast(result.message || "Syslog save failed.", "error"); return; }
             showToast(result.message || "Syslog settings saved.", "success");
+            if (payload.enabled && payload.server) startPingPolling(app);
+            else { stopPingPolling(); hidePingStatus(); }
         } catch (error) {
             showToast("Error saving syslog config: " + (error.message || error), "error");
         }
@@ -1020,6 +1068,21 @@
         app.elements.syslogIdInput = document.getElementById("syslog-id");
         app.loadSyslogConfig   = function () { return loadSyslogConfig(app); };
         app.updateSyslogConfig = function () { return updateSyslogConfig(app); };
+
+        // Phase 4: hide status and stop polling when toggle is turned off
+        app.elements.syslogEnabledInput.addEventListener("change", function () {
+            if (!this.checked) { stopPingPolling(); hidePingStatus(); }
+        });
+
+        // Restart polling when settings tab is shown
+        document.addEventListener("viewShown", function (e) {
+            if (e.detail && e.detail.view === "settings") {
+                if (app.elements.syslogEnabledInput.checked &&
+                    app.elements.syslogServerInput.value.trim()) {
+                    startPingPolling(app);
+                }
+            }
+        });
     }
 
     window.MiOpenSyslog = { init: init };
