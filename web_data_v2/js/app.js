@@ -292,6 +292,24 @@
                 var wel = document.getElementById("web-version");
                 if (wel) wel.textContent = d.web_version || "unknown";
                 if (window.MiOpenUpdater) window.MiOpenUpdater.init(d.version);
+                var checkBtn = document.getElementById("check-updates-btn");
+                if (checkBtn && window.MiOpenUpdater) {
+                    checkBtn.addEventListener("click", function () {
+                        checkBtn.disabled = true;
+                        checkBtn.textContent = "…";
+                        Promise.resolve(window.MiOpenUpdater.checkNow(d.version))
+                            .then(function (found) {
+                                checkBtn.disabled = false;
+                                checkBtn.textContent = "Check";
+                                if (!found) showToast("Already up to date.", "success");
+                            })
+                            .catch(function () {
+                                checkBtn.disabled = false;
+                                checkBtn.textContent = "Check";
+                                showToast("Could not reach update server.", "error");
+                            });
+                    });
+                }
             })
             .catch(function () {});
 

@@ -169,7 +169,7 @@
         var dismissed = localStorage.getItem(SD);
         var channel = getChannel();
 
-        fetch(GA, { cache: "no-store" })
+        return fetch(GA, { cache: "no-store" })
             .then(function (r) { return r.json(); })
             .then(function (releases) {
                 var candidates = releases.filter(function (r) {
@@ -182,6 +182,7 @@
                 if (latest.tag_name === dismissed) return;
                 if (isNewer(latest.tag_name, currentVersion)) {
                     showBanner(latest, currentVersion);
+                    return true;
                 }
             })
             .catch(function () {});
@@ -189,9 +190,9 @@
 
     function init(currentVersion) {
         checkForUpdates(currentVersion);
-        var btn = document.getElementById("check-updates-btn");
-        if (btn) btn.addEventListener("click", function () { localStorage.removeItem(SD); checkForUpdates(currentVersion); });
     }
 
-    window.MiOpenUpdater = { init: init, getChannel: getChannel };
+    function checkNow(v) { localStorage.removeItem(SD); return checkForUpdates(v); }
+
+    window.MiOpenUpdater = { init: init, getChannel: getChannel, checkNow: checkNow };
 })();
