@@ -2369,19 +2369,20 @@ static std::string overkiz_login(const std::string &email, const std::string &pa
     return ctx.session_cookie;
 }
 
-static std::string overkiz_get_devices(const std::string &cookie)
+static std::string overkiz_get(const std::string &cookie, const std::string &path)
 {
+    std::string url = "https://ha101-1.overkiz.com/enduser-mobile-web/enduserAPI/" + path;
     std::string cookie_hdr = "JSESSIONID=" + cookie;
     OverkizCtx ctx;
     ctx.capture_cookie = false;
 
     esp_http_client_config_t cfg = {};
-    cfg.url            = "https://ha101-1.overkiz.com/enduser-mobile-web/enduserAPI/setup/devices";
-    cfg.method         = HTTP_METHOD_GET;
+    cfg.url               = url.c_str();
+    cfg.method            = HTTP_METHOD_GET;
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
-    cfg.timeout_ms     = 15000;
-    cfg.event_handler  = overkiz_http_event;
-    cfg.user_data      = &ctx;
+    cfg.timeout_ms        = 15000;
+    cfg.event_handler     = overkiz_http_event;
+    cfg.user_data         = &ctx;
 
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) return "";
@@ -2391,10 +2392,15 @@ static std::string overkiz_get_devices(const std::string &cookie)
     esp_http_client_cleanup(client);
 
     if (err != ESP_OK || status != 200) {
-        ESP_LOGW(TAG, "overkiz_get_devices: err=%s status=%d", esp_err_to_name(err), status);
+        ESP_LOGW(TAG, "overkiz_get %s: err=%s status=%d", path.c_str(), esp_err_to_name(err), status);
         return "";
     }
     return ctx.body;
+}
+
+static std::string overkiz_get_devices(const std::string &cookie)
+{
+    return overkiz_get(cookie, "setup/devices");
 }
 
 // POST /api/somfy/import
