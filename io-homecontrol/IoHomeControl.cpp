@@ -864,23 +864,28 @@ namespace iohome
           && xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_DISCOVERY_RESPONSE_WAIT_TICKS) && (rxItem.frame.command_id == CMD_DISCOVER_RESPONSE) // expected answer
           && process_discovery_response(rxItem.frame, device))                                                                                   // discovery response parsing OK
       {
-        // We have discovered a device, let's start pairing process
-        if (create_init_transfer(request, mOwnNodeId, device.info.node_id)        // request created
-            && TransmitFrame(request, FREQUENCY_CHANNEL_2, LONG_PREAMBLE_LENGTH)) // send OK
+        // Confirm discovery with device (CMD 2C → 2D) before key exchange
+        if (create_discovery_confirmation_request(request, mOwnNodeId, device.info.node_id) // request created
+            && SendAndReceive(request, response, FREQUENCY_CHANNEL_2)                       // send OK, received something
+            && (response.command_id == CMD_DISCOVER_CONFIRMATION_ACK))                      // expected answer (CMD 2D)
         {
-          // We have sent key init request, let's get challenge from device
-          if (xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS))
+          // We have confirmed discovery, let's start pairing process
+          if (create_init_transfer(request, mOwnNodeId, device.info.node_id)        // request created
+              && TransmitFrame(request, FREQUENCY_CHANNEL_2, LONG_PREAMBLE_LENGTH)) // send OK
           {
-            // We have a response, check it
-            if (memcmp(rxItem.frame.src_node, device.info.node_id, NODE_ID_SIZE) != 0 // same device?
-                || memcmp(rxItem.frame.dest_node, mOwnNodeId, NODE_ID_SIZE) != 0      // for us?
-                || rxItem.frame.command_id != CMD_CHALLENGE_REQUEST                   // expected answer ID?
-                || rxItem.frame.data_len != HMAC_SIZE)                                // expected answer data?
+            // We have sent key init request, let's get challenge from device
+            if (xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS))
             {
-              IO_LOGE("DiscoverAndPairDevice: failed to confirm discovery!");
-            }
-            else
-            {
+              // We have a response, check it
+              if (memcmp(rxItem.frame.src_node, device.info.node_id, NODE_ID_SIZE) != 0 // same device?
+                  || memcmp(rxItem.frame.dest_node, mOwnNodeId, NODE_ID_SIZE) != 0      // for us?
+                  || rxItem.frame.command_id != CMD_CHALLENGE_REQUEST                   // expected answer ID?
+                  || rxItem.frame.data_len != HMAC_SIZE)                                // expected answer data?
+              {
+                IO_LOGE("DiscoverAndPairDevice: failed to confirm discovery!");
+              }
+              else
+              {
               // We have received a challenge, let's send our key!
               IoFrame keyTransfer;
               if (create_key_transfer(keyTransfer, request, device.info.node_id, mOwnNodeId, mSystemKey, rxItem.frame.data) // request created
@@ -965,19 +970,24 @@ namespace iohome
               }
             }
           }
+              else
+              {
+                IO_LOGE("DiscoverAndPairDevice: no answer received to key init request!");
+              }
+            }
+            else
+            {
+              IO_LOGE("DiscoverAndPairDevice: failed to send key init request!");
+            }
+          }
           else
           {
-            IO_LOGE("DiscoverAndPairDevice: no answer received to key init request!");
+            IO_LOGE("DiscoverAndPairDevice: failed to confirm discovery (CMD 2C/2D)!");
           }
         }
         else
         {
-          IO_LOGE("DiscoverAndPairDevice: failed to send key init request!");
-        }
-      }
-      else
-      {
-        IO_LOGE("DiscoverAndPairDevice: failed to send discovery request / no or bad answer received!");
+          IO_LOGE("DiscoverAndPairDevice: failed to send discovery request / no or bad answer received!");
       }
       vTaskPrioritySet(NULL, currentPriority); // restore task priority
       xSemaphoreGive(sMutex);
