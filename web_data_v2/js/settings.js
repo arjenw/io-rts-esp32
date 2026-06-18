@@ -958,6 +958,7 @@
 
     window.MiOpenSettings = {
         init: init,
+        refreshIoKey: function () { loadIoKey(window.MiOpenApp); },
         onKeyCaptured: onKeyCaptured,
         onLearnActive: onLearnActive, onLearnFailed: onLearnFailed, onLearnKey: onLearnKey,
         onPairDeviceActive: onPairDeviceActive, onPairDeviceFailed: onPairDeviceFailed, onPairDeviceKey: onPairDeviceKey,

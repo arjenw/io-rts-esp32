@@ -281,7 +281,12 @@
 
         fetch("/api/ota/key?" + Date.now(), { cache: "no-store" })
             .then(function (r) { return r.json(); })
-            .then(function (d) { if (d.key) window.MiOpenApi.otaKey = d.key; })
+            .then(function (d) {
+                if (d.key) {
+                    window.MiOpenApi.otaKey = d.key;
+                    if (window.MiOpenSettings && window.MiOpenSettings.refreshIoKey) window.MiOpenSettings.refreshIoKey();
+                }
+            })
             .catch(function () {});
 
         fetch("/api/info?" + Date.now(), { cache: "no-store" })

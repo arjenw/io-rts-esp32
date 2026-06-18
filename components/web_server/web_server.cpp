@@ -1483,6 +1483,7 @@ static esp_err_t api_reboot_post(httpd_req_t *req)
 
 static esp_err_t api_io_key_get(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddStringToObject(obj, "key", Config::IoHomeConfig::GetIoSystemKey().c_str());
     send_json(req, obj);

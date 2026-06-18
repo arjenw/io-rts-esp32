@@ -172,11 +172,8 @@
     function fetchAndDisplayIoKey() {
         var display = document.getElementById("io-key-display");
         if (!display) return;
-        fetch("/api/io/key?" + Date.now(), { cache: "no-store" })
-            .then(function (r) { return r.json(); })
-            .then(function (d) {
-                if (d.key) display.value = d.key;
-            })
+        window.MiOpenApi.requestJson("/api/io/key?" + Date.now())
+            .then(function (d) { if (d.key) display.value = d.key; })
             .catch(function () {});
     }
 
