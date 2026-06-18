@@ -602,7 +602,7 @@ function openSomfyImportModal(app,dvs){
 var m=document.createElement("div");
 m.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:center;justify-content:center;";
 var h='<div style="background:var(--card);border-radius:12px;padding:20px;width:min(400px,92vw);max-height:80vh;overflow-y:auto;display:flex;flex-direction:column;gap:10px;"><div style="font-weight:600;font-size:15px;">Devices found in Somfy cloud ('+dvs.length+')</div>';
-dvs.forEach(function(d){h+='<label style="display:flex;align-items:center;gap:10px;cursor:'+(d.already_added?'default':'pointer')+';opacity:'+(d.already_added?'.45':'1')+';"><input type="checkbox"'+(d.already_added?' disabled':'')+" data-p='"+JSON.stringify({id:d.id,name:d.name})+"'><span style=\"font-size:13px;\">"+d.name+" · "+d.id+(d.already_added?" (already added)")+"</span></label>";});
+dvs.forEach(function(d){h+='<label style="display:flex;align-items:center;gap:10px;cursor:'+(d.already_added?'default':'pointer')+';opacity:'+(d.already_added?'.45':'1')+';"><input type="checkbox"'+(d.already_added?' disabled':'')+" data-p='"+JSON.stringify({id:d.id,name:d.name})+"'><span style=\"font-size:13px;\">"+d.name+" · "+d.id+(d.already_added?" (already added)":"")+"</span></label>";});
 h+='<div style="display:flex;gap:8px;margin-top:6px;"><button class="s-btn primary" id="_sa">Add selected</button><button class="s-btn" id="_sc">Cancel</button></div></div>';
 m.innerHTML=h;document.body.appendChild(m);
 m.querySelector("#_sc").onclick=function(){document.body.removeChild(m);};
