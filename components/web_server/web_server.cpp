@@ -2249,6 +2249,274 @@ static esp_err_t api_factory_reset_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// ─── /api/somfy/credentials ──────────────────────────────────────────────────
+
+static esp_err_t api_somfy_credentials_get(httpd_req_t *req)
+{
+    char email[96] = {};
+    nvs_handle_t h;
+    if (nvs_open("somfy", NVS_READONLY, &h) == ESP_OK) {
+        size_t len = sizeof(email);
+        nvs_get_str(h, "email", email, &len);
+        nvs_close(h);
+    }
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddBoolToObject(obj, "configured", email[0] != '\0');
+    cJSON_AddStringToObject(obj, "email", email);
+    send_json(req, obj);
+    return ESP_OK;
+}
+
+static esp_err_t api_somfy_credentials_post(httpd_req_t *req)
+{
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
+    char *body = nullptr;
+    if (read_body(req, &body) != ESP_OK) { send_result(req, false, "Failed to read body"); return ESP_OK; }
+    cJSON *json = cJSON_Parse(body);
+    free(body);
+    if (!json) { send_result(req, false, "Invalid JSON"); return ESP_OK; }
+
+    cJSON *jEmail = cJSON_GetObjectItem(json, "email");
+    cJSON *jPass  = cJSON_GetObjectItem(json, "password");
+    if (!cJSON_IsString(jEmail) || !cJSON_IsString(jPass) ||
+        !jEmail->valuestring[0] || !jPass->valuestring[0]) {
+        cJSON_Delete(json);
+        send_result(req, false, "Missing email or password");
+        return ESP_OK;
+    }
+    nvs_handle_t h;
+    if (nvs_open("somfy", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_str(h, "email",    jEmail->valuestring);
+        nvs_set_str(h, "password", jPass->valuestring);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    cJSON_Delete(json);
+    send_result(req, true, "Credentials saved");
+    return ESP_OK;
+}
+
+// ─── Overkiz cloud API helpers ───────────────────────────────────────────────
+
+static std::string overkiz_url_encode(const std::string &s)
+{
+    std::string r;
+    for (unsigned char c : s) {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
+            r += c;
+        else {
+            char enc[4];
+            snprintf(enc, sizeof(enc), "%%%02X", c);
+            r += enc;
+        }
+    }
+    return r;
+}
+
+struct OverkizCtx {
+    std::string body;
+    std::string session_cookie;
+    bool capture_cookie = false;
+};
+
+static esp_err_t overkiz_http_event(esp_http_client_event_t *evt)
+{
+    auto *ctx = static_cast<OverkizCtx *>(evt->user_data);
+    if (evt->event_id == HTTP_EVENT_ON_HEADER && ctx->capture_cookie) {
+        if (strcasecmp(evt->header_key, "Set-Cookie") == 0) {
+            const char *p = strstr(evt->header_value, "JSESSIONID=");
+            if (p) {
+                p += 11;
+                const char *end = strchr(p, ';');
+                ctx->session_cookie = end ? std::string(p, end - p) : std::string(p);
+            }
+        }
+    } else if (evt->event_id == HTTP_EVENT_ON_DATA) {
+        if (ctx->body.size() < 131072)
+            ctx->body.append(static_cast<const char *>(evt->data), evt->data_len);
+    }
+    return ESP_OK;
+}
+
+static std::string overkiz_login(const std::string &email, const std::string &password)
+{
+    std::string post_body = "userId=" + overkiz_url_encode(email) +
+                            "&userPassword=" + overkiz_url_encode(password);
+    OverkizCtx ctx;
+    ctx.capture_cookie = true;
+
+    esp_http_client_config_t cfg = {};
+    cfg.url            = "https://ha101-1.overkiz.com/enduser-mobile-web/1/enduserAPI/login";
+    cfg.method         = HTTP_METHOD_POST;
+    cfg.crt_bundle_attach = esp_crt_bundle_attach;
+    cfg.timeout_ms     = 15000;
+    cfg.event_handler  = overkiz_http_event;
+    cfg.user_data      = &ctx;
+
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) return "";
+    esp_http_client_set_header(client, "Content-Type", "application/x-www-form-urlencoded");
+    esp_http_client_set_post_field(client, post_body.c_str(), (int)post_body.size());
+    esp_err_t err = esp_http_client_perform(client);
+    int status    = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+
+    if (err != ESP_OK || status != 200) {
+        ESP_LOGW(TAG, "overkiz_login: err=%s status=%d", esp_err_to_name(err), status);
+        return "";
+    }
+    return ctx.session_cookie;
+}
+
+static std::string overkiz_get_devices(const std::string &cookie)
+{
+    std::string cookie_hdr = "JSESSIONID=" + cookie;
+    OverkizCtx ctx;
+    ctx.capture_cookie = false;
+
+    esp_http_client_config_t cfg = {};
+    cfg.url            = "https://ha101-1.overkiz.com/enduser-mobile-web/1/enduserAPI/setup/devices";
+    cfg.method         = HTTP_METHOD_GET;
+    cfg.crt_bundle_attach = esp_crt_bundle_attach;
+    cfg.timeout_ms     = 15000;
+    cfg.event_handler  = overkiz_http_event;
+    cfg.user_data      = &ctx;
+
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) return "";
+    esp_http_client_set_header(client, "Cookie", cookie_hdr.c_str());
+    esp_err_t err = esp_http_client_perform(client);
+    int status    = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+
+    if (err != ESP_OK || status != 200) {
+        ESP_LOGW(TAG, "overkiz_get_devices: err=%s status=%d", esp_err_to_name(err), status);
+        return "";
+    }
+    return ctx.body;
+}
+
+// POST /api/somfy/import
+static esp_err_t api_somfy_import_post(httpd_req_t *req)
+{
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
+
+    char email[96] = {}, password[96] = {};
+    nvs_handle_t nh;
+    if (nvs_open("somfy", NVS_READONLY, &nh) == ESP_OK) {
+        size_t el = sizeof(email), pl = sizeof(password);
+        nvs_get_str(nh, "email",    email,    &el);
+        nvs_get_str(nh, "password", password, &pl);
+        nvs_close(nh);
+    }
+    if (email[0] == '\0' || password[0] == '\0') {
+        send_result(req, false, "No Somfy credentials configured");
+        return ESP_OK;
+    }
+
+    std::string cookie = overkiz_login(std::string(email), std::string(password));
+    if (cookie.empty()) {
+        send_result(req, false, "Login failed — check email and password");
+        return ESP_OK;
+    }
+
+    std::string json_str = overkiz_get_devices(cookie);
+    if (json_str.empty()) {
+        send_result(req, false, "Failed to fetch device list from Somfy cloud");
+        return ESP_OK;
+    }
+
+    cJSON *src = cJSON_Parse(json_str.c_str());
+    if (!cJSON_IsArray(src)) {
+        cJSON_Delete(src);
+        send_result(req, false, "Unexpected response format from Somfy cloud");
+        return ESP_OK;
+    }
+
+    std::map<std::string, bool> known;
+    s_manager->mIoDevicesMutex.lock();
+    for (const auto &kv : s_manager->mIoDevices) known[kv.first] = true;
+    s_manager->mIoDevicesMutex.unlock();
+
+    cJSON *result = cJSON_CreateArray();
+    cJSON *item = nullptr;
+    cJSON_ArrayForEach(item, src) {
+        cJSON *jUrl   = cJSON_GetObjectItem(item, "deviceURL");
+        cJSON *jLabel = cJSON_GetObjectItem(item, "label");
+        if (!cJSON_IsString(jUrl)) continue;
+
+        const char *url = jUrl->valuestring;
+        if (strncmp(url, "io://", 5) != 0) continue;
+
+        const char *slash = strrchr(url, '/');
+        if (!slash || slash[1] == '\0') continue;
+        unsigned long decimal_id = strtoul(slash + 1, nullptr, 10);
+        if (decimal_id == 0 || decimal_id > 0xFFFFFF) continue;
+
+        char hex_id[7];
+        snprintf(hex_id, sizeof(hex_id), "%06lX", decimal_id);
+
+        cJSON *entry = cJSON_CreateObject();
+        cJSON_AddStringToObject(entry, "id",   hex_id);
+        cJSON_AddStringToObject(entry, "name", cJSON_IsString(jLabel) ? jLabel->valuestring : hex_id);
+        cJSON_AddBoolToObject(entry,  "already_added", known.count(hex_id) > 0);
+        cJSON_AddItemToArray(result, entry);
+    }
+    cJSON_Delete(src);
+    send_json(req, result);
+    return ESP_OK;
+}
+
+// POST /api/somfy/add   [{id, name}, ...]
+static esp_err_t api_somfy_add_post(httpd_req_t *req)
+{
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
+    char *body = nullptr;
+    if (read_body(req, &body) != ESP_OK) { send_result(req, false, "Failed to read body"); return ESP_OK; }
+    cJSON *arr = cJSON_Parse(body);
+    free(body);
+    if (!cJSON_IsArray(arr)) { cJSON_Delete(arr); send_result(req, false, "Expected JSON array"); return ESP_OK; }
+
+    std::map<std::string, Helpers::StoredIoDevice> allDevices;
+    Helpers::DeviceStorage::LoadAllIoDevices(allDevices);
+
+    int count = 0;
+    cJSON *item = nullptr;
+    cJSON_ArrayForEach(item, arr) {
+        cJSON *jId   = cJSON_GetObjectItem(item, "id");
+        cJSON *jName = cJSON_GetObjectItem(item, "name");
+        if (!cJSON_IsString(jId)) continue;
+
+        cJSON *syn = cJSON_CreateObject();
+        cJSON_AddStringToObject(syn, "id", jId->valuestring);
+        if (cJSON_IsString(jName))
+            cJSON_AddStringToObject(syn, "name", jName->valuestring);
+
+        std::string deviceID;
+        Helpers::StoredIoDevice sd = {};
+        if (!json_to_stored_device(syn, deviceID, sd)) { cJSON_Delete(syn); continue; }
+        cJSON_Delete(syn);
+
+        allDevices[deviceID] = sd;
+        if (s_manager->mIoHome)
+            s_manager->mIoHome->RestoreDevice(deviceID, sd.device);
+
+        s_manager->mIoDevicesMutex.lock();
+        auto it = s_manager->mIoDevices.find(deviceID);
+        if (it != s_manager->mIoDevices.end()) it->second = sd.device;
+        else s_manager->mIoDevices.insert({deviceID, sd.device});
+        s_manager->mIoDevicesMutex.unlock();
+        count++;
+    }
+    cJSON_Delete(arr);
+    Helpers::DeviceStorage::SaveAllIoDevices(allDevices);
+
+    char msg[64];
+    snprintf(msg, sizeof(msg), "Added %d device(s). Reboot to fully apply.", count);
+    send_result(req, true, msg);
+    return ESP_OK;
+}
+
 // ─── GET /api/info ──────────────────────────────────────────────────────────
 
 static esp_err_t api_info_get(httpd_req_t *req)
@@ -2766,7 +3034,7 @@ void web_server_start(void *ioRtsManager)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192;
     config.task_priority = tskIDLE_PRIORITY + 3; // below radio (8), IO processing (6), status updates (4)
-    config.max_uri_handlers = 56;
+    config.max_uri_handlers = 60;
     config.max_open_sockets = 13; // browser opens many parallel connections for static files + WS
     config.send_wait_timeout = 2;  // seconds; cap blocking sends to dead clients
     config.recv_wait_timeout = 2;
@@ -2821,6 +3089,10 @@ void web_server_start(void *ioRtsManager)
     reg("/api/backup",            HTTP_GET,  api_backup_get);
     reg("/api/restore",           HTTP_POST, api_restore_post);
     reg("/api/factory-reset",     HTTP_POST, api_factory_reset_post);
+    reg("/api/somfy/credentials", HTTP_GET,  api_somfy_credentials_get);
+    reg("/api/somfy/credentials", HTTP_POST, api_somfy_credentials_post);
+    reg("/api/somfy/import",      HTTP_POST, api_somfy_import_post);
+    reg("/api/somfy/add",         HTTP_POST, api_somfy_add_post);
     reg("/api/reboot",            HTTP_POST, api_reboot_post);
     reg("/api/io/key",            HTTP_GET,  api_io_key_get);
     reg("/api/io/key",            HTTP_POST, api_io_key_post);

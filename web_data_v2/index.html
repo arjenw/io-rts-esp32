@@ -286,6 +286,23 @@
             </div>
             <button class="s-btn primary" id="syslog-update">Save Syslog</button>
           </div>
+          <!-- Somfy / Overkiz -->
+          <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+            <span class="row-label">Somfy / Overkiz</span>
+            <div>
+              <label style="font-size:11px;color:var(--text3);">Somfy account email</label>
+              <input type="text" id="somfy-email" class="s-input" placeholder="your@somfy.com" style="margin-top:4px;" autocomplete="username">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--text3);">Somfy account password</label>
+              <input type="password" id="somfy-password" class="s-input" placeholder="••••••••" style="margin-top:4px;" autocomplete="current-password">
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button class="s-btn primary" id="somfy-save">Save credentials</button>
+              <button class="s-btn" id="somfy-import-btn">Import devices</button>
+            </div>
+            <span id="somfy-status" style="font-size:11px;color:var(--text3);min-height:16px;"></span>
+          </div>
         </div>
       </div>
 

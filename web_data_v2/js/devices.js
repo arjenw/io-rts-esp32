@@ -598,6 +598,21 @@ setButtons([makeBtn(_app.i18nText("button.retry","Retry"), "pair", function () {
 }
 return { open:open, cancel:cancel, onDeviceAdded:onDeviceAdded, onPairFailed:onPairFailed, onPairingActive:onPairingActive, onRemoteSeen:onRemoteSeen, onCaptureTimeout:onCaptureTimeout };
 })();
+function openSomfyImportModal(app,dvs){
+var m=document.createElement("div");
+m.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:center;justify-content:center;";
+var h='<div style="background:var(--card);border-radius:12px;padding:20px;width:min(400px,92vw);max-height:80vh;overflow-y:auto;display:flex;flex-direction:column;gap:10px;"><div style="font-weight:600;font-size:15px;">Devices found in Somfy cloud ('+dvs.length+')</div>';
+dvs.forEach(function(d){h+='<label style="display:flex;align-items:center;gap:10px;cursor:'+(d.already_added?'default':'pointer')+';opacity:'+(d.already_added?'.45':'1')+';"><input type="checkbox"'+(d.already_added?' disabled':'')+" data-p='"+JSON.stringify({id:d.id,name:d.name})+"'><span style=\"font-size:13px;\">"+d.name+" · "+d.id+(d.already_added?" (already added)")+"</span></label>";});
+h+='<div style="display:flex;gap:8px;margin-top:6px;"><button class="s-btn primary" id="_sa">Add selected</button><button class="s-btn" id="_sc">Cancel</button></div></div>';
+m.innerHTML=h;document.body.appendChild(m);
+m.querySelector("#_sc").onclick=function(){document.body.removeChild(m);};
+m.querySelector("#_sa").addEventListener("click",async function(){
+var ab=this,sel=[].filter.call(m.querySelectorAll("input[data-p]"),function(c){return c.checked&&!c.disabled;}).map(function(c){return JSON.parse(c.dataset.p);});
+if(!sel.length)return;ab.disabled=true;ab.textContent="Adding…";
+try{var r=await window.MiOpenApi.postJson("/api/somfy/add",sel);document.body.removeChild(m);app.logStatus(r.message||"Devices added.",r.success?"info":"error");if(r.success)app.fetchAndDisplayDevices();}
+catch(e){ab.disabled=false;ab.textContent="Add selected";app.logStatus("Error adding devices.","error");}
+});
+}
 function init(app) {
 app.fetchAndDisplayDevices = function () { return fetchAndDisplayDevices(app); };
 app.updateDeviceFill  = updateDeviceFill;
@@ -605,6 +620,16 @@ app.updateDeviceState = updateDeviceState;
 app.pairingWizard     = pairingWizard;
 var pairBtn = document.getElementById("pair-device-btn");
 if (pairBtn) pairBtn.addEventListener("click", function () { pairingWizard.open(app); });
+var _si=document.getElementById("somfy-import-btn");
+if(_si)_si.addEventListener("click",async function(){
+var s=document.getElementById("somfy-status");
+if(s)s.textContent="Contacting Somfy cloud…";_si.disabled=true;
+try{var d=await window.MiOpenApi.postJson("/api/somfy/import",{});_si.disabled=false;
+if(!Array.isArray(d)){if(s)s.textContent=d&&d.message?d.message:"Import failed.";return;}
+if(!d.length){if(s)s.textContent="No io-homecontrol devices found in Somfy account.";return;}
+if(s)s.textContent="";openSomfyImportModal(app,d);
+}catch(e){_si.disabled=false;if(s)s.textContent="Could not reach Somfy cloud.";}
+});
 }
 window.MiOpenDevices = { init: init };
 })();

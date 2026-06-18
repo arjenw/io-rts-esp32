@@ -950,6 +950,10 @@
             this.classList.remove("open");
         });
         g("io-send-key-start").addEventListener("click", function () { startSendKey(); });
+
+        window.MiOpenApi.requestJson("/api/somfy/credentials").then(function(r){var e=document.getElementById("somfy-email");if(e&&r.email)e.value=r.email;}).catch(function(){});
+        var _se=document.getElementById("somfy-save");
+        if(_se)_se.addEventListener("click",async function(){var e=(document.getElementById("somfy-email")||{}).value||"",p=(document.getElementById("somfy-password")||{}).value||"",s=document.getElementById("somfy-status");if(!e||!p){if(s)s.textContent="Enter both email and password.";return;}try{var r=await window.MiOpenApi.postJson("/api/somfy/credentials",{email:e,password:p});if(s)s.textContent=r.success?"Saved.":(r.message||"Failed.");}catch(x){if(s)s.textContent="Error saving credentials.";}});
     }
 
     window.MiOpenSettings = {
