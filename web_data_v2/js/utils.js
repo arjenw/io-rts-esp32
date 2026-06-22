@@ -96,6 +96,7 @@ window.getLang = getLang;
             ? url + (url.indexOf("?") === -1 ? "?" : "&") + "_=" + Date.now()
             : url;
         if (method === "GET") requestOptions.cache = "no-store";
+        requestOptions.headers = otaHeaders(requestOptions.headers || {});
         const response = await fetch(requestUrl, requestOptions);
         const data = await ensureJson(response);
         if (!response.ok) throw new Error(data.message || ("HTTP error " + response.status));
