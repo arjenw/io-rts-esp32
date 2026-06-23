@@ -21,6 +21,7 @@
 #include <ios>
 #include <sstream>
 #include <map>
+#include <vector>
 #include <list>
 #include <iostream>
 #include <iomanip>
@@ -560,6 +561,12 @@ namespace iohome
   {
     for (;;)
     {
+      // Wait for first frame WITHOUT holding sMutex — other tasks (SetDevicePosition, HTTP handlers)
+      // can acquire the mutex freely during idle periods between frames.
+      RxFrameQueueItem item;
+      if (!xQueueReceive(sRxIoQueue, &item, RECEIVED_IO_TREATMENT_WAIT_TICKS))
+        continue;
+
       if (xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
       {
         // Auto-stop key sniffing after timeout
@@ -568,8 +575,10 @@ namespace iohome
           sSniffKeyActive = false;
           IO_LOGI("Key sniffing timed out after 120 s");
         }
-        RxFrameQueueItem item;
-        while (xQueueReceive(sRxIoQueue, &item, RECEIVED_IO_TREATMENT_WAIT_TICKS))
+        // Process first frame, then drain any additional queued frames non-blocking.
+        // Inner sniff sequence (CMD_KEY_INIT_TRANSFER) keeps its own 500ms waits under the mutex
+        // to atomically capture challenge + key-transfer frames without another task consuming them.
+        do
         {
           // Process frame internally (discovery, authentication, status, ...)
           std::string dstDevice = buffToHexString(NODE_ID_SIZE, item.frame.dest_node);
@@ -711,8 +720,9 @@ namespace iohome
           break;
           }
         }
+        while (xQueueReceive(sRxIoQueue, &item, 0)); // drain any additional queued frames non-blocking
         xSemaphoreGive(sMutex);
-        vTaskDelay(pdMS_TO_TICKS(5)); // If we have no more received frame to process, perhaps we have orders to execute!
+        vTaskDelay(pdMS_TO_TICKS(5)); // yield so other tasks (SetDevicePosition, HTTP handlers) can run
       }
       else
       {
@@ -727,52 +737,74 @@ namespace iohome
     {
       if (!isPassive()) // not passive, check if we should update some device status!
       {
-        for (std::map<std::string, IoDevice>::iterator it = sDeviceMap.begin(); it != sDeviceMap.end(); it++)
+        // Snapshot device IDs under mutex to avoid iterating sDeviceMap concurrently with
+        // insertions (RestoreDevice) or field writes (ProcessReceivedFrameTask).
+        std::vector<std::string> deviceIds;
+        if (xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
         {
-          if (memcmp(it->second.info.node_id, mOwnNodeId, NODE_ID_SIZE) == 0)
+          for (const auto &kv : sDeviceMap)
+            deviceIds.push_back(kv.first);
+          xSemaphoreGive(sMutex);
+        }
+
+        for (const auto &devId : deviceIds)
+        {
+          // Read device state under mutex to avoid data race with ProcessReceivedFrameTask writes.
+          bool ownNode = false, isDeleted = false, needsName = false, needsType = false, shouldUpdate = false;
+          if (xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
           {
-            IO_LOGE("UpdateDevicesStatusTask: device {} has node_id equal to own node ID — skipping!", it->first);
+            auto it = sDeviceMap.find(devId);
+            if (it != sDeviceMap.end())
+            {
+              ownNode      = (memcmp(it->second.info.node_id, mOwnNodeId, NODE_ID_SIZE) == 0);
+              isDeleted    = it->second.is_deleted;
+              needsName    = !ownNode && !isDeleted && (strlen(it->second.info.name) <= 1);
+              needsType    = !ownNode && !isDeleted && (it->second.info.device_type == DeviceType::UNKNOWN);
+              shouldUpdate = !ownNode && !isDeleted &&
+                             ((esp_timer_get_time() > it->second.last_status_timestamp + STATUS_UPDATE_MAX_TIME_US) ||
+                              (it->second.next_status_update_timestamp < esp_timer_get_time()));
+            }
+            xSemaphoreGive(sMutex);
+          }
+
+          if (ownNode)
+          {
+            IO_LOGE("UpdateDevicesStatusTask: device {} has node_id equal to own node ID — skipping!", devId);
             continue;
           }
-          if (!it->second.is_deleted &&                                                              // device is not marked deleted and
-              ((esp_timer_get_time() > it->second.last_status_timestamp + STATUS_UPDATE_MAX_TIME_US) // previous update is a long time ago
-               || (it->second.next_status_update_timestamp < esp_timer_get_time())))                 // or we know that we should update due to previous status received
+          if (!shouldUpdate && !needsName && !needsType) continue;
+
+          if (needsName) DeviceGetName(devId);
+          // DeviceGetGeneralInfo1 / DeviceGetGeneralInfo3 reserved for future use
+          if (needsType) DeviceGetGeneralInfo2(devId);
+
+          if (shouldUpdate)
           {
-            if (strlen(it->second.info.name) <= 1) // at init (covers "" and "?" placeholder)
-            {
-              DeviceGetName(it->first);
-            }
-            if (strlen(it->second.info.info1) == 0) // at init
-            {
-              // DeviceGetGeneralInfo1(it->first); // contains some product number / model number / CIE?
-              // DeviceGetGeneralInfo3(it->first); // not interesting until we know what the response contains!
-            }
-            if (it->second.info.device_type == DeviceType::UNKNOWN) // at init
-            {
-              DeviceGetGeneralInfo2(it->first); // contains some product number / model number / CIE? + device type and subtype!
-            }
-            // So let's update device status
             if (xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
             {
-              IoFrame request;
-              IoFrame response;
-              bool reqOk;
-              if (deviceTypeSupportsTilt(it->second.info.device_type))
-                reqOk = create_getstatus03_tilt_request(request, mOwnNodeId, it->second.info.node_id);
-              else
-                reqOk = create_getstatus03_request(request, mOwnNodeId, it->second.info.node_id);
-              UBaseType_t currentPriority = uxTaskPriorityGet(NULL);
-              vTaskPrioritySet(NULL, IO_FRAME_PROCESSING_TASK);
-              bool exchangeOk = reqOk && SendAndReceive(request, response, FREQUENCY_CHANNEL_2);
-              vTaskPrioritySet(NULL, currentPriority);
-              if (exchangeOk)
+              auto dev = sDeviceMap.find(devId);
+              if (dev != sDeviceMap.end() && !dev->second.is_deleted)
               {
-                UpdateDeviceStatus(response);
-              }
-              else
-              {
-                IO_LOGE("UpdateDevicesStatusTask: failed to send request or get response!");
-                it->second.next_status_update_timestamp = esp_timer_get_time() + STATUS_UPDATE_NEXT_TRY_US; // retry later
+                IoFrame request;
+                IoFrame response;
+                bool reqOk;
+                if (deviceTypeSupportsTilt(dev->second.info.device_type))
+                  reqOk = create_getstatus03_tilt_request(request, mOwnNodeId, dev->second.info.node_id);
+                else
+                  reqOk = create_getstatus03_request(request, mOwnNodeId, dev->second.info.node_id);
+                UBaseType_t currentPriority = uxTaskPriorityGet(NULL);
+                vTaskPrioritySet(NULL, IO_FRAME_PROCESSING_TASK);
+                bool exchangeOk = reqOk && SendAndReceive(request, response, FREQUENCY_CHANNEL_2);
+                vTaskPrioritySet(NULL, currentPriority);
+                if (exchangeOk)
+                {
+                  UpdateDeviceStatus(response);
+                }
+                else
+                {
+                  IO_LOGE("UpdateDevicesStatusTask: failed to send request or get response!");
+                  dev->second.next_status_update_timestamp = esp_timer_get_time() + STATUS_UPDATE_NEXT_TRY_US;
+                }
               }
               xSemaphoreGive(sMutex);
             }
@@ -819,13 +851,13 @@ namespace iohome
 
   void IoHomeControl::RestoreDevice(const std::string &deviceID, const iohome::IoDevice &device)
   {
-    if (!sDeviceMap.contains(deviceID))
+    if (xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
     {
-      sDeviceMap.insert({deviceID, device});
-    }
-    else
-    {
-      IO_LOGE("RestoreDevice: can't restore a device that already exists!");
+      if (!sDeviceMap.contains(deviceID))
+        sDeviceMap.insert({deviceID, device});
+      else
+        IO_LOGE("RestoreDevice: can't restore a device that already exists!");
+      xSemaphoreGive(sMutex);
     }
   }
 
@@ -834,10 +866,12 @@ namespace iohome
     std::string deviceID(tmpDeviceID.length(), '0'); // init avoiding C++ 3133 warning
     std::transform(tmpDeviceID.begin(), tmpDeviceID.end(), deviceID.begin(), [](unsigned char c)
                    { return std::toupper(c); }); // convert to uppercase
-    auto it = sDeviceMap.find(deviceID);
-    if (it != sDeviceMap.end())
+    if (xSemaphoreTake(sMutex, MUTEX_MAX_WAIT_TICKS))
     {
-      it->second.is_deleted = true;
+      auto it = sDeviceMap.find(deviceID);
+      if (it != sDeviceMap.end())
+        it->second.is_deleted = true;
+      xSemaphoreGive(sMutex);
     }
   }
 
