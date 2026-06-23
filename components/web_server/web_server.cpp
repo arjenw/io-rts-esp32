@@ -861,7 +861,6 @@ static esp_err_t api_wifi_config_post(httpd_req_t *req)
 #ifdef CONFIG_CONNECTIVITY_CHOICE_WIFI
 static esp_err_t api_wifi_fallback_get(httpd_req_t *req)
 {
-    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddBoolToObject(obj, "enabled",         Helpers::NetworkHelpers_GetFallbackEnabled());
     cJSON_AddNumberToObject(obj, "retries_boot",   Helpers::NetworkHelpers_GetRetriesBoot());
@@ -1578,7 +1577,6 @@ static esp_err_t api_io_sniff_post(httpd_req_t *req)
 
 static esp_err_t api_io_config_get(httpd_req_t *req)
 {
-    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddStringToObject(obj, "node_id",      Config::IoHomeConfig::GetIoNodeId().c_str());
     cJSON_AddNumberToObject(obj, "tx_power",     Config::IoHomeConfig::GetTxPower());
@@ -2274,7 +2272,6 @@ static esp_err_t api_factory_reset_post(httpd_req_t *req)
 
 static esp_err_t api_somfy_credentials_get(httpd_req_t *req)
 {
-    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char email[96] = {};
     nvs_handle_t h;
     if (nvs_open("somfy", NVS_READONLY, &h) == ESP_OK) {
