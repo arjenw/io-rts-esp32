@@ -458,11 +458,13 @@ static volatile bool s_cal_cancel = false;
 static char s_cal_device_id[8] = {};
 struct CalibrationArg { char deviceID[8]; };
 static void calibration_task(void *arg); // forward declaration
+static bool ota_check_key(httpd_req_t *req); // forward declaration
 
 // ─── POST /api/action ───────────────────────────────────────────────────────
 
 static esp_err_t api_action_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char *body = nullptr;
     if (read_body(req, &body) != ESP_OK) {
         send_result(req, false, "Failed to read body");
@@ -640,6 +642,7 @@ static esp_err_t api_debug_get(httpd_req_t *req)
 
 static esp_err_t api_mqtt_get(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddStringToObject(obj, "user",        Config::MqttConfig::GetClientUsername().c_str());
     cJSON_AddStringToObject(obj, "server",      Config::MqttConfig::GetBrokerAddress().c_str());
@@ -660,6 +663,7 @@ static esp_err_t api_mqtt_get(httpd_req_t *req)
 
 static esp_err_t api_mqtt_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char *body = nullptr;
     if (read_body(req, &body) != ESP_OK) {
         send_result(req, false, "Failed to read body");
@@ -772,9 +776,9 @@ static void ota_key_init(void)
         s_ota_key[OTA_KEY_LEN] = '\0';
         nvs_set_str(h, "api_key", s_ota_key);
         nvs_commit(h);
-        ESP_LOGI(TAG, "OTA key (generated): %s", s_ota_key);
+        ESP_LOGI(TAG, "OTA key (generated): set (%d chars)", OTA_KEY_LEN);
     } else if (err == ESP_OK) {
-        ESP_LOGI(TAG, "OTA key (loaded): %s", s_ota_key);
+        ESP_LOGI(TAG, "OTA key (loaded): set (%d chars)", OTA_KEY_LEN);
     } else {
         ESP_LOGE(TAG, "OTA: NVS read error: %s", esp_err_to_name(err));
     }
@@ -785,7 +789,10 @@ static bool ota_check_key(httpd_req_t *req)
 {
     char key_hdr[OTA_KEY_LEN + 1] = {};
     esp_err_t err = httpd_req_get_hdr_value_str(req, "X-OTA-Key", key_hdr, sizeof(key_hdr));
-    bool ok = (err == ESP_OK) && (memcmp(key_hdr, s_ota_key, OTA_KEY_LEN) == 0);
+    uint8_t diff = (err != ESP_OK) ? 1 : 0;
+    for (int i = 0; i < OTA_KEY_LEN; i++)
+        diff |= (uint8_t)key_hdr[i] ^ (uint8_t)s_ota_key[i];
+    bool ok = (diff == 0);
     if (!ok) {
         int fd = httpd_req_to_sockfd(req);
         struct sockaddr_in addr = {};
@@ -813,6 +820,7 @@ static esp_err_t api_wifi_config_get(httpd_req_t *req)
 
 static esp_err_t api_wifi_config_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char body[256] = {};
     int len = httpd_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body"); return ESP_OK; }
@@ -853,6 +861,7 @@ static esp_err_t api_wifi_config_post(httpd_req_t *req)
 #ifdef CONFIG_CONNECTIVITY_CHOICE_WIFI
 static esp_err_t api_wifi_fallback_get(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddBoolToObject(obj, "enabled",         Helpers::NetworkHelpers_GetFallbackEnabled());
     cJSON_AddNumberToObject(obj, "retries_boot",   Helpers::NetworkHelpers_GetRetriesBoot());
@@ -868,6 +877,7 @@ static esp_err_t api_wifi_fallback_get(httpd_req_t *req)
 
 static esp_err_t api_wifi_fallback_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char body[256] = {};
     int len = httpd_req_recv(req, body, sizeof(body) - 1);
     if (len <= 0) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body"); return ESP_OK; }
@@ -918,6 +928,7 @@ static esp_err_t api_wifi_fallback_post(httpd_req_t *req)
 
 static esp_err_t api_wifi_scan_get(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     wifi_scan_config_t scan_cfg = {};
     scan_cfg.scan_type = WIFI_SCAN_TYPE_PASSIVE;
     esp_wifi_scan_start(&scan_cfg, true); // blocking
@@ -961,6 +972,7 @@ static esp_err_t api_ota_key_get(httpd_req_t *req)
 
 static esp_err_t api_ota_key_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char *body = nullptr;
     if (read_body(req, &body) != ESP_OK) {
         send_result(req, false, "Failed to read body");
@@ -1521,6 +1533,7 @@ static esp_err_t api_io_key_post(httpd_req_t *req)
 
 static esp_err_t api_io_sniff_get(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     cJSON *obj = cJSON_CreateObject();
     bool active = s_manager && s_manager->IsKeySniffActive();
     cJSON_AddBoolToObject(obj, "active", active);
@@ -1537,6 +1550,7 @@ static esp_err_t api_io_sniff_get(httpd_req_t *req)
 
 static esp_err_t api_io_sniff_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char *body = nullptr;
     if (read_body(req, &body) != ESP_OK) { send_result(req, false, "Failed to read body"); return ESP_OK; }
 
@@ -1564,6 +1578,7 @@ static esp_err_t api_io_sniff_post(httpd_req_t *req)
 
 static esp_err_t api_io_config_get(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     cJSON *obj = cJSON_CreateObject();
     cJSON_AddStringToObject(obj, "node_id",      Config::IoHomeConfig::GetIoNodeId().c_str());
     cJSON_AddNumberToObject(obj, "tx_power",     Config::IoHomeConfig::GetTxPower());
@@ -1576,6 +1591,7 @@ static esp_err_t api_io_config_get(httpd_req_t *req)
 
 static esp_err_t api_io_config_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char *body = nullptr;
     if (read_body(req, &body) != ESP_OK) { send_result(req, false, "Failed to read body"); return ESP_OK; }
 
@@ -1885,6 +1901,7 @@ static bool json_to_stored_device(cJSON *item, std::string &deviceID, Helpers::S
 
 static esp_err_t api_download_devices(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     std::map<std::string, Helpers::StoredIoDevice> storedDevices;
     Helpers::DeviceStorage::LoadAllIoDevices(storedDevices);
 
@@ -1901,6 +1918,7 @@ static esp_err_t api_download_devices(httpd_req_t *req)
 
 static esp_err_t api_download_remotes(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     std::map<std::string, Helpers::StoredIoDevice> storedDevices;
     Helpers::DeviceStorage::LoadAllIoDevices(storedDevices);
 
@@ -1922,6 +1940,7 @@ static esp_err_t api_download_remotes(httpd_req_t *req)
 
 static esp_err_t api_upload_devices(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char *content = nullptr;
     if (read_multipart_content(req, &content) != ESP_OK) {
         send_result(req, false, "Failed to read upload (too large or bad format?)");
@@ -1973,6 +1992,7 @@ static esp_err_t api_upload_devices(httpd_req_t *req)
 
 static esp_err_t api_upload_remotes(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char *content = nullptr;
     if (read_multipart_content(req, &content) != ESP_OK) {
         send_result(req, false, "Failed to read upload (too large or bad format?)");
@@ -2254,6 +2274,7 @@ static esp_err_t api_factory_reset_post(httpd_req_t *req)
 
 static esp_err_t api_somfy_credentials_get(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char email[96] = {};
     nvs_handle_t h;
     if (nvs_open("somfy", NVS_READONLY, &h) == ESP_OK) {
@@ -2672,6 +2693,7 @@ static void pairing_task(void *)
 
 static esp_err_t api_pair_start_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     if (s_pairing_active) {
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(req, "{\"status\":\"busy\"}");
@@ -2719,6 +2741,7 @@ static void learn_task(void *)
 
 static esp_err_t api_learn_start_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     if (s_learn_active) {
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(req, "{\"status\":\"busy\"}");
@@ -2739,6 +2762,7 @@ static esp_err_t api_learn_start_post(httpd_req_t *req)
 
 static esp_err_t api_learn_stop_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     s_learn_active = false;
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"status\":\"stopped\"}");
@@ -2780,6 +2804,7 @@ static void pair_device_task(void *)
 
 static esp_err_t api_pair_device_start_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     if (s_pair_device_active) {
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(req, "{\"status\":\"busy\"}");
@@ -2794,6 +2819,7 @@ static esp_err_t api_pair_device_start_post(httpd_req_t *req)
 
 static esp_err_t api_pair_device_stop_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     s_pair_device_active = false;
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"status\":\"stopped\"}");
@@ -2828,6 +2854,7 @@ static void send_key_task(void *)
 
 static esp_err_t api_send_key_start_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     if (s_send_key_active) {
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(req, "{\"status\":\"busy\"}");
@@ -2842,6 +2869,7 @@ static esp_err_t api_send_key_start_post(httpd_req_t *req)
 
 static esp_err_t api_send_key_stop_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     s_send_key_active = false;
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"status\":\"stopped\"}");
@@ -2875,6 +2903,7 @@ static void capture_timeout_task(void *)
 
 static esp_err_t api_capture_start_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     s_manager->StartRemoteCapture();
     if (s_capture_timeout_task != nullptr) {
         vTaskDelete(s_capture_timeout_task);
@@ -2888,6 +2917,7 @@ static esp_err_t api_capture_start_post(httpd_req_t *req)
 
 static esp_err_t api_capture_cancel_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     if (s_capture_timeout_task != nullptr) {
         vTaskDelete(s_capture_timeout_task);
         s_capture_timeout_task = nullptr;

@@ -226,7 +226,7 @@
             if (!r.success) { showToast(r.message || "Save failed.", "error"); return; }
             if (!confirm("Network settings saved. The device needs to reboot to apply changes. Reboot now?")) return;
             showToast("Network settings saved — rebooting…", "info", 8000);
-            fetch("/api/reboot", { method: "POST" }).catch(function(){});
+            window.MiOpenApi.postJson("/api/reboot", {}).catch(function(){});
         } catch (e) {
             showToast("Error saving network config: " + (e.message || e), "error");
         }
@@ -505,7 +505,7 @@
         if (!btn) return;
         btn.addEventListener("click", function () {
             if (!confirm("Reboot the device now?")) return;
-            fetch("/api/reboot", { method: "POST" })
+            window.MiOpenApi.postJson("/api/reboot", {})
                 .then(function () {
                     var rebootingToast = showToast("Rebooting…", "info", 60000);
                     var deadline = Date.now() + 60000;
@@ -608,8 +608,7 @@
                 scanResults.style.display = "none";
                 scanResults.innerHTML = "";
 
-                fetch("/api/wifi/scan?" + Date.now(), { cache: "no-store" })
-                    .then(function (r) { return r.json(); })
+                window.MiOpenApi.requestJson("/api/wifi/scan?" + Date.now())
                     .then(function (networks) {
                         if (!networks.length) {
                             scanResults.innerHTML = "<div style='padding:8px;color:#888;font-size:.9em;'>No networks found.</div>";

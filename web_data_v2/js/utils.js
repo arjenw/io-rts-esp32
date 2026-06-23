@@ -125,7 +125,7 @@ window.getLang = getLang;
     }
 
     async function downloadFile(url, filename) {
-        const response = await fetch(url);
+        const response = await fetch(url, { headers: otaHeaders() });
         if (!response.ok) throw new Error("Network response was not ok");
         const blob = await response.blob();
         const link = document.createElement("a");

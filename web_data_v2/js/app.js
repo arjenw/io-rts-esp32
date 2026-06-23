@@ -287,7 +287,14 @@
                     if (window.MiOpenSettings && window.MiOpenSettings.refreshIoKey) window.MiOpenSettings.refreshIoKey();
                 }
             })
-            .catch(function () {});
+            .catch(function () {})
+            .finally(function () {
+                app.loadMqttConfig();
+                app.loadSyslogConfig();
+                app.fetchAndDisplayDevices().then(function () {
+                    app.fetchAndDisplayRemotes();
+                });
+            });
 
         fetch("/api/info?" + Date.now(), { cache: "no-store" })
             .then(function (r) { return r.json(); })
@@ -321,10 +328,5 @@
 
         app.logStatus("System started", "info");
         app.logStatus("Loading devices…", "debug");
-        app.loadMqttConfig();
-        app.loadSyslogConfig();
-        app.fetchAndDisplayDevices().then(function () {
-            app.fetchAndDisplayRemotes();
-        });
     });
 })();
