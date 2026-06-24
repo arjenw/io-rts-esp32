@@ -5,6 +5,7 @@
     var _editLinkedDevices = [];
     var _countdownTimer = null;
     var _captureActive = false;
+    var _remotesList = [];
 
     // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,7 @@
         var tbody = document.querySelector("#remote-table tbody");
         try {
             var remotes = await window.MiOpenApi.requestJson("/api/remotes");
+            _remotesList = remotes;
             tbody.textContent = "";
             var countEl = document.getElementById("remotes-count");
             if (countEl) countEl.textContent = remotes.length ? "(" + remotes.length + ")" : "";
@@ -146,6 +148,32 @@
         });
     }
 
+    // ── go to device-link step ────────────────────────────────────────────────
+
+    function goToDeviceStep(id) {
+        _capturedId = id;
+        var existing = _remotesList.find(function (r) { return r.id === id; });
+        var errEl = document.getElementById("arm-devices-error");
+        var idLabel = document.getElementById("arm-remote-id-label");
+        idLabel.textContent = "Remote: " + id;
+        idLabel.style.display = "";
+        if (existing) {
+            _mode = "edit";
+            _editLinkedDevices = existing.devices || [];
+            document.getElementById("arm-modal-title").textContent = "Edit Remote";
+            document.getElementById("arm-delete-btn").style.display = "";
+            document.getElementById("arm-devices-back").style.display = "none";
+            errEl.textContent = "This remote is already linked — editing existing links.";
+            errEl.style.color = "var(--text3)";
+            buildDeviceList(_editLinkedDevices);
+        } else {
+            errEl.textContent = "";
+            errEl.style.color = "";
+            buildDeviceList([]);
+        }
+        showStep("arm-step-devices");
+    }
+
     // ── wizard open/close ──────────────────────────────────────────────────────
 
     function openWizard(app, mode, remoteId, linkedDevices) {
@@ -194,6 +222,13 @@
         saveBtn.disabled = true;
 
         var checkedIds = Array.from(document.querySelectorAll(".arm-device-cb:checked")).map(function (cb) { return cb.value; });
+
+        if (!checkedIds.length) {
+            err.textContent = "Select at least one device to link this remote to.";
+            err.style.color = "";
+            saveBtn.disabled = false;
+            return;
+        }
 
         try {
             if (_mode === "add") {
@@ -249,6 +284,10 @@
         });
 
         // Step 2 capture
+        document.getElementById("arm-capture-cancel").addEventListener("click", function () {
+            cancelCapture();
+            closeWizard();
+        });
         document.getElementById("arm-skip-btn").addEventListener("click", function () {
             cancelCapture();
             document.getElementById("arm-manual-input").value = "";
@@ -261,6 +300,7 @@
         });
 
         // Step 2 manual
+        document.getElementById("arm-manual-cancel").addEventListener("click", closeWizard);
         document.getElementById("arm-manual-back").addEventListener("click", function () {
             showStep("arm-step-choose");
         });
@@ -272,12 +312,7 @@
                 return;
             }
             errEl.textContent = "";
-            _capturedId = val;
-            document.getElementById("arm-remote-id-label").textContent = "Remote: " + val;
-            document.getElementById("arm-remote-id-label").style.display = "";
-            document.getElementById("arm-devices-error").textContent = "";
-            buildDeviceList([]);
-            showStep("arm-step-devices");
+            goToDeviceStep(val);
         });
 
         // Step 3 devices
@@ -307,14 +342,7 @@
         var statusEl = document.getElementById("arm-capture-status");
         statusEl.textContent = "Remote detected: " + id;
         statusEl.style.color = "var(--green)";
-        _capturedId = id;
-        setTimeout(function () {
-            document.getElementById("arm-remote-id-label").textContent = "Remote: " + id;
-            document.getElementById("arm-remote-id-label").style.display = "";
-            document.getElementById("arm-devices-error").textContent = "";
-            buildDeviceList([]);
-            showStep("arm-step-devices");
-        }, 800);
+        setTimeout(function () { goToDeviceStep(id); }, 800);
     }
 
     function onCaptureTimeout() {

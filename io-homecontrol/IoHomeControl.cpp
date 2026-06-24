@@ -706,6 +706,8 @@ namespace iohome
                   }
                 }
               }
+              if (sUnknownSenderCallback != nullptr)
+                sUnknownSenderCallback(srcDevice); // lets capture window detect already-linked remotes
             }
             else if (sUnknownSenderCallback != nullptr)
             {
