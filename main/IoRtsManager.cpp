@@ -195,8 +195,12 @@ namespace IoRts
         sIoRtsManager = this;
         // Initialize IO objects
         InitializeIo();
-        // Load devices from flash storage
+        // Load devices from flash storage — runs before high-priority tasks start
+        // so RestoreDevice can acquire sMutex without contention.
         LoadIoDevicesFromStorage();
+        // Now start P8/P6/P4 tasks (they compete for sMutex; devices already loaded)
+        if (mIoHome != nullptr)
+            mIoHome->StartTasks();
         // Initialize MQTT objects
         InitializeMqtt();
         // Start everything

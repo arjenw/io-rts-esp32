@@ -62,6 +62,9 @@ namespace iohome
                const std::string &system_key,
                bool isPassive = false);
 
+    /// @brief Start radio and IO processing tasks (call after LoadIoDevicesFromStorage)
+    void StartTasks();
+
     /// @brief Configure physical layer parameters
     /// @details Configure frequency, modulation, data rate, etc.
     /// @param power Power in dBm

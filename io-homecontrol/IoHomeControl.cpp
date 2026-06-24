@@ -413,10 +413,14 @@ namespace iohome
     // create queues to handle IO frames
     sRxIoQueue = xQueueCreate(10, sizeof(RxFrameQueueItem));
     sTxIoQueue = xQueueCreate(10, sizeof(TxFrameQueueItem));
-    // start frame task
+    // High-priority tasks (P8/P6/P4) are started later via StartTasks(),
+    // after LoadIoDevicesFromStorage() has populated sDeviceMap.
+  }
+
+  void IoHomeControl::StartTasks()
+  {
     xTaskCreate(process_radio_task, "process_radio_task", 4096, this, RADIO_FRAME_PROCESSING_PRIORITY, NULL);
     xTaskCreate(process_ioframe_task, "process_ioframe_task", 4096, this, IO_FRAME_PROCESSING_TASK, NULL);
-    // start status update task
     xTaskCreate(update_devices_status_task, "update_devices_status_task", 4096, this, DEVICE_STATUS_UPDATE_PRIORITY, NULL);
   }
 
@@ -712,6 +716,7 @@ namespace iohome
           }
         }
         xSemaphoreGive(sMutex);
+        vTaskDelay(pdMS_TO_TICKS(5)); // yield so P4/httpd can acquire mutex between frames
       }
       else
       {
