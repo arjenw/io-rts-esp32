@@ -2361,9 +2361,22 @@ static esp_err_t overkiz_http_event(esp_http_client_event_t *evt)
             }
         }
     } else if (evt->event_id == HTTP_EVENT_ON_DATA) {
-        if (ctx->body && ctx->body_len + (size_t)evt->data_len < ctx->body_cap) {
-            memcpy(ctx->body + ctx->body_len, evt->data, evt->data_len);
-            ctx->body_len += evt->data_len;
+        if (ctx->body) {
+            size_t needed = ctx->body_len + (size_t)evt->data_len;
+            if (needed >= ctx->body_cap) {
+                size_t new_cap = std::max(ctx->body_cap * 2, needed + 1);
+                if (new_cap > 256 * 1024) {
+                    ESP_LOGW(TAG, "overkiz: response exceeds 256KB limit, truncating");
+                } else {
+                    char *nb = (char *)realloc(ctx->body, new_cap + 1);
+                    if (nb) { ctx->body = nb; ctx->body_cap = new_cap; }
+                    else { ESP_LOGW(TAG, "overkiz: realloc failed at %zu bytes (free=%zu)", new_cap, esp_get_free_heap_size()); }
+                }
+            }
+            if (ctx->body_len + (size_t)evt->data_len <= ctx->body_cap) {
+                memcpy(ctx->body + ctx->body_len, evt->data, evt->data_len);
+                ctx->body_len += evt->data_len;
+            }
         }
     }
     return ESP_OK;
@@ -2406,17 +2419,15 @@ static char *overkiz_get(const std::string &cookie, const std::string &path)
     OverkizCtx ctx;
     ctx.capture_cookie = false;
 
-    // Allocate a fixed-size buffer using an explicit malloc so OOM is a graceful failure
-    // (operator new on ESP32 with exceptions disabled calls abort() on failure).
-    // Use at most half the free heap, capped at 64 KB.
-    size_t free_heap = esp_get_free_heap_size();
-    size_t cap = std::min(free_heap / 2, (size_t)(64 * 1024));
-    ctx.body = (char *)malloc(cap + 1);
+    // Start small; the event handler grows with realloc as data arrives.
+    // Keeping the initial allocation small leaves headroom for realloc while
+    // the TLS session is also holding memory.
+    ctx.body = (char *)malloc(4096 + 1);
     if (!ctx.body) {
-        ESP_LOGW(TAG, "overkiz_get: OOM allocating body buffer (%zu free)", free_heap);
+        ESP_LOGW(TAG, "overkiz_get: OOM on initial body buffer (free=%zu)", esp_get_free_heap_size());
         return nullptr;
     }
-    ctx.body_cap = cap;
+    ctx.body_cap = 4096;
 
     esp_http_client_config_t cfg = {};
     cfg.url               = url.c_str();
@@ -2432,7 +2443,6 @@ static char *overkiz_get(const std::string &cookie, const std::string &path)
     esp_err_t err = esp_http_client_perform(client);
     int status    = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
-
     if (err != ESP_OK || status != 200) {
         ESP_LOGW(TAG, "overkiz_get %s: err=%s status=%d", path.c_str(), esp_err_to_name(err), status);
         return nullptr;
@@ -2480,7 +2490,7 @@ static esp_err_t api_somfy_import_post(httpd_req_t *req)
     }
 
     cJSON *src = cJSON_Parse(json_buf);
-    free(json_buf); // done with raw buffer; cJSON has its own copy
+    free(json_buf);
     if (!cJSON_IsArray(src)) {
         cJSON_Delete(src);
         send_result(req, false, "Unexpected response format from Somfy cloud");
