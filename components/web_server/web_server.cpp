@@ -873,6 +873,7 @@ static esp_err_t api_wifi_fallback_get(httpd_req_t *req)
     cJSON_AddNumberToObject(obj, "retries_boot",   Helpers::NetworkHelpers_GetRetriesBoot());
     cJSON_AddNumberToObject(obj, "retries_running",Helpers::NetworkHelpers_GetRetriesRunning());
     cJSON_AddNumberToObject(obj, "ap_timeout_s",   Helpers::NetworkHelpers_GetApTimeoutS());
+    cJSON_AddStringToObject(obj, "ap_ssid",        Helpers::NetworkHelpers_GetApSsid().c_str());
     cJSON_AddBoolToObject(obj, "ap_running",       Helpers::NetworkHelpers_IsFallbackApRunning());
     cJSON_AddBoolToObject(obj, "connected",        Helpers::NetworkHelpers::isConnected());
     send_json(req, obj);
@@ -891,16 +892,19 @@ static esp_err_t api_wifi_fallback_post(httpd_req_t *req)
     cJSON *root = cJSON_ParseWithLength(body, len);
     if (!root) { httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON"); return ESP_OK; }
 
-    bool     enabled = Helpers::NetworkHelpers_GetFallbackEnabled();
-    int      rb      = Helpers::NetworkHelpers_GetRetriesBoot();
-    int      rr      = Helpers::NetworkHelpers_GetRetriesRunning();
-    uint32_t tmo     = Helpers::NetworkHelpers_GetApTimeoutS();
+    bool        enabled = Helpers::NetworkHelpers_GetFallbackEnabled();
+    int         rb      = Helpers::NetworkHelpers_GetRetriesBoot();
+    int         rr      = Helpers::NetworkHelpers_GetRetriesRunning();
+    uint32_t    tmo     = Helpers::NetworkHelpers_GetApTimeoutS();
+    std::string ssid    = Helpers::NetworkHelpers_GetApSsid();
 
     cJSON *item;
     if ((item = cJSON_GetObjectItem(root, "enabled"))          && cJSON_IsBool(item))   enabled = cJSON_IsTrue(item);
-    if ((item = cJSON_GetObjectItem(root, "retries_boot"))     && cJSON_IsNumber(item)) rb  = (int)item->valuedouble;
-    if ((item = cJSON_GetObjectItem(root, "retries_running"))  && cJSON_IsNumber(item)) rr  = (int)item->valuedouble;
-    if ((item = cJSON_GetObjectItem(root, "ap_timeout_s"))     && cJSON_IsNumber(item)) tmo = (uint32_t)item->valuedouble;
+    if ((item = cJSON_GetObjectItem(root, "retries_boot"))     && cJSON_IsNumber(item)) rb   = (int)item->valuedouble;
+    if ((item = cJSON_GetObjectItem(root, "retries_running"))  && cJSON_IsNumber(item)) rr   = (int)item->valuedouble;
+    if ((item = cJSON_GetObjectItem(root, "ap_timeout_s"))     && cJSON_IsNumber(item)) tmo  = (uint32_t)item->valuedouble;
+    if ((item = cJSON_GetObjectItem(root, "ap_ssid"))          && cJSON_IsString(item) && strlen(item->valuestring) > 0)
+        ssid = item->valuestring;
     cJSON_Delete(root);
 
     // Clamp to valid ranges
@@ -909,9 +913,10 @@ static esp_err_t api_wifi_fallback_post(httpd_req_t *req)
     if (rr  < 1)    rr  = 1;
     if (rr  > 20)   rr  = 20;
     if (tmo > 3600) tmo = 3600;
+    if (ssid.length() > 32) ssid = ssid.substr(0, 32);
 
     // Apply immediately
-    Helpers::NetworkHelpers_SetFallbackConfig(enabled, rb, rr, tmo);
+    Helpers::NetworkHelpers_SetFallbackConfig(enabled, rb, rr, tmo, ssid);
 
     // Persist to NVS
     nvs_handle_t h;
@@ -920,6 +925,7 @@ static esp_err_t api_wifi_fallback_post(httpd_req_t *req)
         nvs_set_i32(h, "retries_boot", rb);
         nvs_set_i32(h, "retries_run",  rr);
         nvs_set_u32(h, "ap_timeout_s", tmo);
+        nvs_set_str(h, "ap_ssid",      ssid.c_str());
         nvs_commit(h);
         nvs_close(h);
     }

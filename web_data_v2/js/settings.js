@@ -36,6 +36,7 @@
             app.elements.fallbackRetriesBoot.value    = cfg.retries_boot    ?? 3;
             app.elements.fallbackRetriesRunning.value = cfg.retries_running ?? 3;
             app.elements.fallbackTimeout.value        = cfg.ap_timeout_s    ?? 600;
+            app.elements.fallbackApSsid.value         = cfg.ap_ssid         ?? "";
             updateFallbackStatus(app, cfg);
         } catch (e) {
             console.error("Error fetching fallback config", e);
@@ -67,14 +68,42 @@
     }
 
     async function saveFallbackConfig(app) {
+        var statusEl = g("fallback-save-status");
+        // Validate and optionally save password first
+        var pwdNew     = app.elements.fallbackApPasswordNew.value;
+        var pwdConfirm = app.elements.fallbackApPasswordConfirm.value;
+        if (pwdNew || pwdConfirm) {
+            if (pwdNew !== pwdConfirm) {
+                if (statusEl) { statusEl.textContent = "Passwords do not match."; statusEl.style.color = "var(--red)"; }
+                return;
+            }
+            if (pwdNew && pwdNew.length < 8) {
+                if (statusEl) { statusEl.textContent = "Password must be at least 8 characters."; statusEl.style.color = "var(--red)"; }
+                return;
+            }
+            try {
+                const pr = await window.MiOpenApi.postJson("/api/misc/password", { password: pwdNew });
+                if (!pr.success && !pr.ok) {
+                    if (statusEl) { statusEl.textContent = pr.message || "Password save failed."; statusEl.style.color = "var(--red)"; }
+                    return;
+                }
+                app.elements.fallbackApPasswordNew.value = "";
+                app.elements.fallbackApPasswordConfirm.value = "";
+            } catch (e) {
+                if (statusEl) { statusEl.textContent = "Error saving password."; statusEl.style.color = "var(--red)"; }
+                return;
+            }
+        }
         try {
             const r = await window.MiOpenApi.postJson("/api/wifi/fallback", {
                 enabled:          app.elements.fallbackEnabled.checked,
                 retries_boot:     parseInt(app.elements.fallbackRetriesBoot.value)    || 3,
                 retries_running:  parseInt(app.elements.fallbackRetriesRunning.value) || 3,
-                ap_timeout_s:     parseInt(app.elements.fallbackTimeout.value)        || 600
+                ap_timeout_s:     parseInt(app.elements.fallbackTimeout.value)        || 600,
+                ap_ssid:          app.elements.fallbackApSsid.value.trim() || "io-rts-setup"
             });
             if (!r.success && !r.ok) { showToast(r.message || "Save failed.", "error"); return; }
+            if (statusEl) { statusEl.textContent = ""; }
             showToast("Fallback AP settings saved.", "success");
         } catch (e) {
             showToast("Error saving fallback config.", "error");
@@ -306,27 +335,8 @@
     }
 
     function initAccessPassword(app) {
-        app.elements.accessPasswordNew     = g("access-password-new");
-        app.elements.accessPasswordConfirm = g("access-password-confirm");
-
-        g("access-password-save").addEventListener("click", async function () {
-            const pwd     = app.elements.accessPasswordNew.value;
-            const confirm = app.elements.accessPasswordConfirm.value;
-
-            if (pwd !== confirm) { showToast("Passwords do not match.", "error"); return; }
-            if (pwd.length > 0 && pwd.length < 8) { showToast("Password must be at least 8 characters (required for WPA2).", "error"); return; }
-            if (pwd.length > 32) { showToast("Password too long (max 32 characters).", "error"); return; }
-
-            try {
-                const r = await window.MiOpenApi.postJson("/api/misc/password", { password: pwd });
-                if (!r.success) { showToast(r.message || "Save failed.", "error"); return; }
-                showToast(pwd ? "Password saved. Reboot to apply." : "Password cleared. Reboot to apply.", "success");
-                app.elements.accessPasswordNew.value     = "";
-                app.elements.accessPasswordConfirm.value = "";
-            } catch (e) {
-                showToast("Error saving password: " + (e.message || e), "error");
-            }
-        });
+        app.elements.fallbackApPasswordNew     = g("fallback-ap-password-new");
+        app.elements.fallbackApPasswordConfirm = g("fallback-ap-password-confirm");
     }
 
     let sniffPollTimer = null;
@@ -536,6 +546,7 @@
         app.elements.fallbackRetriesBoot    = g("fallback-retries-boot");
         app.elements.fallbackRetriesRunning = g("fallback-retries-running");
         app.elements.fallbackTimeout        = g("fallback-timeout");
+        app.elements.fallbackApSsid         = g("fallback-ap-ssid");
         app.elements.fallbackStatus         = g("fallback-status");
         app.loadFallbackConfig = function () { return loadFallbackConfig(app); };
         app.saveFallbackConfig = function () { return saveFallbackConfig(app); };
