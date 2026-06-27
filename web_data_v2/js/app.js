@@ -206,12 +206,12 @@
         ws.onopen = function () {
             reconnectDelay = 1000;
             ws.send('{"type":"hello"}');
-            app.logStatus("WebSocket connected", "info");
+            app.logStatus(t("log.websocket_connected"), "info");
             var dot = document.getElementById("conn-dot");
             if (dot) { dot.classList.remove("offline"); }
         };
         ws.onclose = function () {
-            app.logStatus("WebSocket disconnected — reconnecting in " + (reconnectDelay / 1000) + "s", "error");
+            app.logStatus(t("log.websocket_disconnected_reconnect", { delay: reconnectDelay / 1000 }), "error");
             var dot = document.getElementById("conn-dot");
             if (dot) dot.classList.add("offline");
             setTimeout(connect, reconnectDelay);
@@ -289,6 +289,10 @@
         window.addEventListener("i18n:changed", function () {
             app.fetchAndDisplayDevices();
             app.fetchAndDisplayRemotes();
+            // Refresh dynamic settings strings that are set from JS
+            if (window.MiOpenSettings && window.MiOpenSettings.refreshDynamicLabels) {
+                window.MiOpenSettings.refreshDynamicLabels();
+            }
         });
 
         fetch("/api/ota/key?" + Date.now(), { cache: "no-store" })
@@ -315,30 +319,30 @@
                 if (el) el.textContent = d.version + " · " + d.compile_date;
                 var wel = document.getElementById("web-version");
                 if (wel) wel.textContent = d.web_version || "unknown";
-                if (window.MiOpenUpdater) window.MiOpenUpdater.init(d.version);
+                if (window.MiOpenUpdater) window.MiOpenUpdater.init(d.version, d.board || "heltec");
                 var checkBtn = document.getElementById("check-updates-btn");
                 if (checkBtn && window.MiOpenUpdater) {
                     checkBtn.addEventListener("click", function () {
                         checkBtn.disabled = true;
                         checkBtn.textContent = "…";
                         localStorage.removeItem("updateDismissed");
-                        Promise.resolve(window.MiOpenUpdater.check(d.version))
+                        Promise.resolve(window.MiOpenUpdater.check(d.version, d.board || "heltec"))
                             .then(function (found) {
                                 checkBtn.disabled = false;
-                                checkBtn.textContent = "Check";
-                                if (!found) showToast("Already up to date.", "success");
+                                checkBtn.textContent = t("button.check", "Check");
+                                if (!found) showToast(t("toast.already-up-to-date"), "success");
                             })
                             .catch(function () {
                                 checkBtn.disabled = false;
-                                checkBtn.textContent = "Check";
-                                showToast("Could not reach update server.", "error");
+                                checkBtn.textContent = t("button.check", "Check");
+                                showToast(t("toast.update-server-unreachable"), "error");
                             });
                     });
                 }
             })
             .catch(function () {});
 
-        app.logStatus("System started", "info");
-        app.logStatus("Loading devices…", "debug");
+        app.logStatus(t("log.system_started"), "info");
+        app.logStatus(t("log.loading_devices"), "debug");
     });
 })();

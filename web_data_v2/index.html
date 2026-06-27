@@ -120,44 +120,44 @@
 
       <!-- NETWORK -->
       <div class="settings-group">
-        <div class="settings-group-label">Network</div>
+        <div class="settings-group-label" data-i18n="settings.group.network">Network</div>
         <div class="settings-card">
           <!-- WiFi SSID -->
           <div class="settings-row" data-help="wifi" style="flex-direction:column;align-items:stretch;gap:8px;">
             <div style="display:flex;align-items:center;justify-content:space-between;">
-              <span class="row-label">WiFi</span>
+              <span class="row-label" data-i18n="settings.row.wifi">WiFi</span>
               <span class="row-status connected" id="fallback-status"></span>
             </div>
             <div style="display:flex;gap:6px;">
               <div style="flex:1;">
-                <label style="font-size:11px;color:var(--text3);">Network name (SSID)</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.network-name-ssid">Network name (SSID)</label>
                 <div style="display:flex;gap:6px;margin-top:4px;">
                   <input type="text" id="wifi-ssid" class="s-input" placeholder="Network name" maxlength="32" style="flex:1;">
-                  <button class="s-btn" id="wifi-scan-btn">Scan</button>
+                  <button class="s-btn" id="wifi-scan-btn" data-i18n="button.scan">Scan</button>
                 </div>
               </div>
             </div>
             <div id="wifi-scan-results" style="display:none;"></div>
             <div>
-              <label style="font-size:11px;color:var(--text3);">Password</label>
-              <input type="password" id="wifi-password" class="s-input" placeholder="Leave blank to keep current" style="margin-top:4px;">
+              <label style="font-size:11px;color:var(--text3);" data-i18n="label.password">Password</label>
+              <input type="password" id="wifi-password" class="s-input" placeholder="Leave blank to keep current" data-i18n-placeholder="label.wifi-password-hint" style="margin-top:4px;">
             </div>
             <div style="display:flex;gap:8px;align-items:center;">
-              <button class="s-btn primary" id="wifi-config-save" style="flex:1;">Save WiFi</button>
+              <button class="s-btn primary" id="wifi-config-save" data-i18n="button.save-wifi" style="flex:1;">Save WiFi</button>
             </div>
             <div class="field-status" id="wifi-config-status"></div>
-            <p class="restart-notice">⚠ Device will restart after saving.</p>
+            <p class="restart-notice" data-i18n="label.restart-notice">⚠ Device will restart after saving.</p>
           </div>
           <!-- Hostname & IP -->
           <div class="settings-row" data-help="network" style="flex-direction:column;align-items:stretch;gap:8px;">
-            <span class="row-label">Network</span>
+            <span class="row-label" data-i18n="settings.row.network">Network</span>
             <div style="display:flex;gap:6px;align-items:flex-end;">
               <div style="flex:2">
-                <label style="font-size:11px;color:var(--text3);">Hostname</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.hostname">Hostname</label>
                 <input type="text" id="net-hostname" class="s-input" placeholder="io-rts-esp32" maxlength="32" style="margin-top:4px;">
               </div>
               <div style="flex:1;display:flex;align-items:center;gap:8px;padding-bottom:2px;">
-                <span style="font-size:12px;color:var(--text2);">DHCP</span>
+                <span style="font-size:12px;color:var(--text2);" data-i18n="label.dhcp">DHCP</span>
                 <div class="s-toggle" id="net-dhcp-toggle"></div>
                 <input type="checkbox" id="net-dhcp" style="display:none">
               </div>
@@ -165,35 +165,35 @@
             <div id="net-static-fields" style="flex-direction:column;gap:6px;display:flex;">
               <div style="display:flex;gap:6px;">
                 <div style="flex:2">
-                  <label style="font-size:11px;color:var(--text3);">IP Address</label>
+                  <label style="font-size:11px;color:var(--text3);" data-i18n="label.ip-address">IP Address</label>
                   <input type="text" id="net-ip" class="s-input" placeholder="192.168.1.100" style="margin-top:4px;">
                 </div>
                 <div style="flex:1">
-                  <label style="font-size:11px;color:var(--text3);">Subnet mask</label>
+                  <label style="font-size:11px;color:var(--text3);" data-i18n="label.subnet-mask">Subnet mask</label>
                   <input type="text" id="net-mask" class="s-input" placeholder="255.255.255.0" style="margin-top:4px;">
                 </div>
               </div>
               <div style="display:flex;gap:6px;">
                 <div style="flex:1">
-                  <label style="font-size:11px;color:var(--text3);">Gateway</label>
+                  <label style="font-size:11px;color:var(--text3);" data-i18n="label.gateway">Gateway</label>
                   <input type="text" id="net-gateway" class="s-input" placeholder="192.168.1.1" style="margin-top:4px;">
                 </div>
                 <div style="flex:1">
-                  <label style="font-size:11px;color:var(--text3);">DNS</label>
+                  <label style="font-size:11px;color:var(--text3);" data-i18n="label.dns">DNS</label>
                   <input type="text" id="net-dns1" class="s-input" placeholder="8.8.8.8" style="margin-top:4px;">
                 </div>
               </div>
               <div>
-                <label style="font-size:11px;color:var(--text3);">SNTP server</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.sntp-server">SNTP server</label>
                 <input type="text" id="net-sntp" class="s-input" placeholder="pool.ntp.org" style="margin-top:4px;">
               </div>
             </div>
-            <button class="s-btn primary" id="net-config-save">Save Network</button>
-            <p class="restart-notice">⚠ Device will restart after saving.</p>
+            <button class="s-btn primary" id="net-config-save" data-i18n="button.save-network">Save Network</button>
+            <p class="restart-notice" data-i18n="label.restart-notice">⚠ Device will restart after saving.</p>
           </div>
           <!-- Fallback AP -->
           <div class="settings-row" data-help="fallback-ap">
-            <span class="row-label">Fallback AP</span>
+            <span class="row-label" data-i18n="settings.row.fallback-ap">Fallback AP</span>
             <div class="row-right">
               <div class="s-toggle on" id="fallback-toggle"></div>
               <input type="checkbox" id="fallback-enabled" style="display:none">
@@ -202,48 +202,48 @@
           <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;display:none;" id="fallback-extra">
             <div style="display:flex;gap:8px;">
               <div style="flex:2">
-                <label style="font-size:11px;color:var(--text3);">Hotspot name (SSID)</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.hotspot-name">Hotspot name (SSID)</label>
                 <input type="text" id="fallback-ap-ssid" class="s-input" maxlength="32" placeholder="io-rts-setup" style="margin-top:4px;">
               </div>
               <div style="flex:1">
-                <label style="font-size:11px;color:var(--text3);">Timeout (s)</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.timeout-s">Timeout (s)</label>
                 <input type="number" id="fallback-timeout" class="s-input" min="0" max="3600" placeholder="600" style="margin-top:4px;">
               </div>
             </div>
             <div style="display:flex;gap:8px;">
               <div style="flex:1">
-                <label style="font-size:11px;color:var(--text3);">Retries (boot)</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.retries-boot">Retries (boot)</label>
                 <input type="number" id="fallback-retries-boot" class="s-input" min="1" max="20" placeholder="3" style="margin-top:4px;">
               </div>
               <div style="flex:1">
-                <label style="font-size:11px;color:var(--text3);">Retries (running)</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.retries-running">Retries (running)</label>
                 <input type="number" id="fallback-retries-running" class="s-input" min="1" max="20" placeholder="3" style="margin-top:4px;">
               </div>
             </div>
             <div style="display:flex;gap:8px;">
               <div style="flex:1">
-                <label style="font-size:11px;color:var(--text3);">Hotspot password (min 8 chars, blank = open)</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.hotspot-password">Hotspot password (min 8 chars, blank = open)</label>
                 <input type="password" id="fallback-ap-password-new" class="s-input" placeholder="Blank = clear password" style="margin-top:4px;">
               </div>
               <div style="flex:1">
-                <label style="font-size:11px;color:var(--text3);">Confirm password</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.confirm-password">Confirm password</label>
                 <input type="password" id="fallback-ap-password-confirm" class="s-input" placeholder="Confirm" style="margin-top:4px;">
               </div>
             </div>
             <div class="field-status" id="fallback-save-status"></div>
-            <button class="s-btn primary" id="fallback-save">Save Fallback AP</button>
+            <button class="s-btn primary" id="fallback-save" data-i18n="button.save-fallback-ap">Save Fallback AP</button>
           </div>
         </div>
       </div>
 
       <!-- INTEGRATION -->
       <div class="settings-group">
-        <div class="settings-group-label">Integration</div>
+        <div class="settings-group-label" data-i18n="settings.group.integration">Integration</div>
         <div class="settings-card">
           <!-- MQTT -->
           <div class="settings-row" data-help="mqtt" style="flex-direction:column;align-items:stretch;gap:8px;">
             <div style="display:flex;align-items:center;justify-content:space-between;">
-              <span class="row-label">MQTT</span>
+              <span class="row-label" data-i18n="settings.row.mqtt">MQTT</span>
               <div style="display:flex;align-items:center;gap:8px;">
                 <span class="row-status" id="mqtt-conn-status"></span>
                 <div class="s-toggle" id="mqtt-enabled-toggle"></div>
@@ -252,44 +252,44 @@
             </div>
             <div style="display:flex;gap:6px;">
               <div style="flex:2;">
-                <label style="font-size:11px;color:var(--text3);">Broker address</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.broker-address">Broker address</label>
                 <input type="text" id="mqtt-server" class="s-input" placeholder="192.168.1.x or hostname" style="margin-top:4px;">
               </div>
               <div style="flex:1;">
-                <label style="font-size:11px;color:var(--text3);">Port</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.port">Port</label>
                 <input type="text" id="mqtt-port" class="s-input" placeholder="1883 / 8883 (TLS)" style="margin-top:4px;">
               </div>
             </div>
             <div style="display:flex;gap:6px;">
               <div style="flex:1;">
-                <label style="font-size:11px;color:var(--text3);">Username</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.username">Username</label>
                 <input type="text" id="mqtt-user" class="s-input" placeholder="leave blank if none" style="margin-top:4px;">
               </div>
               <div style="flex:1;">
-                <label style="font-size:11px;color:var(--text3);">Password</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.password">Password</label>
                 <input type="password" id="mqtt-password" class="s-input" placeholder="leave blank if none" style="margin-top:4px;">
               </div>
             </div>
             <div style="display:flex;gap:6px;">
               <div style="flex:1;">
-                <label style="font-size:11px;color:var(--text3);">Client ID</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.client-id">Client ID</label>
                 <input type="text" id="mqtt-client-id" class="s-input" placeholder="blank = auto-generated" style="margin-top:4px;">
               </div>
               <div style="flex:1;">
-                <label style="font-size:11px;color:var(--text3);">Topic prefix</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.topic-prefix">Topic prefix</label>
                 <input type="text" id="mqtt-topic" class="s-input" placeholder="e.g. home/io-rts" style="margin-top:4px;">
               </div>
             </div>
             <div>
-              <label style="font-size:11px;color:var(--text3);">Home Assistant discovery prefix</label>
+              <label style="font-size:11px;color:var(--text3);" data-i18n="label.ha-discovery">Home Assistant discovery prefix</label>
               <input type="text" id="mqtt-discovery" class="s-input" placeholder="e.g. homeassistant/device/io-rts" style="margin-top:4px;">
             </div>
-            <button class="s-btn primary" id="mqtt-update">Save MQTT</button>
+            <button class="s-btn primary" id="mqtt-update" data-i18n="button.save-mqtt">Save MQTT</button>
           </div>
           <!-- Syslog -->
           <div class="settings-row" data-help="syslog" style="flex-direction:column;align-items:stretch;gap:8px;">
             <div style="display:flex;align-items:center;justify-content:space-between;">
-              <span class="row-label">Syslog</span>
+              <span class="row-label" data-i18n="settings.row.syslog">Syslog</span>
               <div style="display:flex;align-items:center;gap:8px;">
                 <span class="row-status" id="syslog-conn-status"></span>
                 <div class="s-toggle" id="syslog-toggle"></div>
@@ -298,21 +298,21 @@
             </div>
             <div style="display:flex;gap:6px;">
               <div style="flex:2;">
-                <label style="font-size:11px;color:var(--text3);">Server address</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.server-address">Server address</label>
                 <input type="text" id="syslog-server" class="s-input" placeholder="192.168.1.x" style="margin-top:4px;">
               </div>
               <div style="flex:1;">
-                <label style="font-size:11px;color:var(--text3);">Port</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.port">Port</label>
                 <input type="text" id="syslog-port" class="s-input" placeholder="514" style="margin-top:4px;">
               </div>
             </div>
             <div style="display:flex;gap:6px;">
               <div style="flex:1">
-                <label style="font-size:11px;color:var(--text3);">Facility</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.facility">Facility</label>
                 <input type="number" id="syslog-facility" class="s-input" min="0" max="23" placeholder="1" style="margin-top:4px;">
               </div>
               <div style="flex:1">
-                <label style="font-size:11px;color:var(--text3);">Min level</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.min-level">Min level</label>
                 <select id="syslog-min-level" class="s-select" style="margin-top:4px;">
                   <option value="3">Error</option>
                   <option value="4">Warning</option>
@@ -322,25 +322,25 @@
               </div>
             </div>
             <div style="display:flex;flex-direction:column;gap:4px;">
-              <label style="font-size:11px;color:var(--text3);">Device identifier (shown in log)</label>
+              <label style="font-size:11px;color:var(--text3);" data-i18n="label.device-identifier">Device identifier (shown in log)</label>
               <input type="text" id="syslog-id" class="s-input" placeholder="auto-generated" maxlength="15">
             </div>
-            <button class="s-btn primary" id="syslog-update">Save Syslog</button>
+            <button class="s-btn primary" id="syslog-update" data-i18n="button.save-syslog">Save Syslog</button>
           </div>
           <!-- Somfy / Overkiz -->
           <div class="settings-row" data-help="somfy" style="flex-direction:column;align-items:stretch;gap:8px;">
-            <span class="row-label">Somfy / Overkiz</span>
+            <span class="row-label" data-i18n="settings.row.somfy">Somfy / Overkiz</span>
             <div>
-              <label style="font-size:11px;color:var(--text3);">Somfy account email</label>
+              <label style="font-size:11px;color:var(--text3);" data-i18n="label.somfy-email">Somfy account email</label>
               <input type="text" id="somfy-email" class="s-input" placeholder="your@somfy.com" style="margin-top:4px;" autocomplete="username">
             </div>
             <div>
-              <label style="font-size:11px;color:var(--text3);">Somfy account password</label>
+              <label style="font-size:11px;color:var(--text3);" data-i18n="label.somfy-password">Somfy account password</label>
               <input type="password" id="somfy-password" class="s-input" placeholder="••••••••" style="margin-top:4px;" autocomplete="current-password">
             </div>
             <div style="display:flex;gap:8px;">
-              <button class="s-btn primary" id="somfy-save">Save credentials</button>
-              <button class="s-btn" id="somfy-import-btn">Import devices</button>
+              <button class="s-btn primary" id="somfy-save" data-i18n="button.save-credentials">Save credentials</button>
+              <button class="s-btn" id="somfy-import-btn" data-i18n="button.import-devices-btn">Import devices</button>
             </div>
             <span id="somfy-status" style="font-size:11px;color:var(--text3);min-height:16px;"></span>
           </div>
@@ -349,35 +349,35 @@
 
       <!-- SECURITY -->
       <div class="settings-group">
-        <div class="settings-group-label">Security</div>
+        <div class="settings-group-label" data-i18n="settings.group.security">Security</div>
         <div class="settings-card">
           <!-- Controller identity -->
           <div class="settings-row" data-help="controller" style="flex-direction:column;align-items:stretch;gap:8px;">
-            <span class="row-label">Controller Identity</span>
+            <span class="row-label" data-i18n="settings.row.controller">Controller Identity</span>
             <div style="display:flex;gap:6px;align-items:center;">
               <div style="flex:1;">
-                <label style="font-size:11px;color:var(--text3);">Node Address (3 bytes hex)</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.node-address">Node Address (3 bytes hex)</label>
                 <input type="text" id="io-node-id" class="s-input" placeholder="A1B1C3" maxlength="6" style="font-family:var(--mono);text-transform:uppercase;margin-top:4px;">
               </div>
               <div style="flex:1;">
-                <label style="font-size:11px;color:var(--text3);">TX Power (0–20 dBm)</label>
+                <label style="font-size:11px;color:var(--text3);" data-i18n="label.tx-power">TX Power (0–20 dBm)</label>
                 <input type="number" id="io-tx-power" class="s-input" min="0" max="20" placeholder="17" style="margin-top:4px;">
               </div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:12px;color:var(--text2);">Passive mode (listen only)</span>
+              <span style="font-size:12px;color:var(--text2);" data-i18n="label.passive-mode">Passive mode (listen only)</span>
               <div class="s-toggle" id="io-passive-toggle"></div>
               <input type="checkbox" id="io-passive-mode" style="display:none">
             </div>
-            <button class="s-btn primary" id="io-config-save">Save Controller Settings</button>
+            <button class="s-btn primary" id="io-config-save" data-i18n="button.save-controller">Save Controller Settings</button>
           </div>
           <!-- IO key -->
           <div class="settings-row" data-help="io-key" style="flex-direction:column;align-items:stretch;gap:8px;">
-            <span class="row-label">IO System Key</span>
-            <div class="sensitive-notice">Changing this key makes all paired devices unreachable until reboot.</div>
+            <span class="row-label" data-i18n="settings.row.io-key">IO System Key</span>
+            <div class="sensitive-notice" data-i18n="label.io-key-warning">Changing this key makes all paired devices unreachable until reboot.</div>
             <div style="display:flex;gap:6px;align-items:center;">
               <input type="password" id="io-key-display" class="s-input key-display" placeholder="(not set)" readonly style="flex:1;">
-              <button class="s-btn" id="io-key-show">Show</button>
+              <button class="s-btn" id="io-key-show" data-i18n="button.show">Show</button>
               <button class="s-btn" id="io-key-edit">Edit</button>
               <button class="s-btn" id="io-key-sniff">Sniff</button>
               <button class="s-btn" id="io-key-learn">Learn</button>
@@ -388,7 +388,7 @@
           </div>
           <!-- OTA key -->
           <div class="settings-row" data-help="ota-key" style="flex-direction:column;align-items:stretch;gap:8px;">
-            <span class="row-label">OTA Key</span>
+            <span class="row-label" data-i18n="settings.row.ota-key">OTA Key</span>
             <div style="display:flex;gap:6px;align-items:center;">
               <input type="text" id="ota-key-display" class="s-input key-display" readonly style="flex:1;font-size:11px;">
               <button class="s-btn" id="ota-key-edit">Edit</button>
@@ -399,67 +399,67 @@
 
       <!-- SYSTEM -->
       <div class="settings-group">
-        <div class="settings-group-label">System</div>
+        <div class="settings-group-label" data-i18n="settings.group.system">System</div>
         <div class="settings-card">
           <!-- Firmware info -->
           <div class="settings-row">
-            <span class="row-label">Firmware</span>
+            <span class="row-label" data-i18n="settings.row.firmware">Firmware</span>
             <div class="row-right">
               <span class="row-value" id="firmware-version"></span>
             </div>
           </div>
           <div class="settings-row">
-            <span class="row-label">Web UI</span>
+            <span class="row-label" data-i18n="settings.row.web-ui">Web UI</span>
             <div class="row-right">
               <span class="row-value" id="web-version"></span>
             </div>
           </div>
           <!-- OTA upload -->
           <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;">
-            <span class="row-label">Firmware Update</span>
+            <span class="row-label" data-i18n="settings.row.firmware-update">Firmware Update</span>
             <div>
               <label style="font-size:11px;color:var(--text3);">Firmware file — use <strong>heltec-vX.X.X-firmware.bin</strong> from the GitHub release, not full.bin or web.bin</label>
               <input type="file" id="ota-file" accept=".bin" class="s-input" style="padding:5px 10px;margin-top:4px;">
             </div>
-            <button class="s-btn primary" id="ota-upload">Upload Firmware</button>
+            <button class="s-btn primary" id="ota-upload" data-i18n="button.upload-firmware">Upload Firmware</button>
             <progress id="ota-progress" max="100" value="0" style="display:none;"></progress>
             <span id="ota-status" class="field-status"></span>
           </div>
           <!-- Web UI upload -->
           <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;">
-            <span class="row-label">Web UI Update</span>
+            <span class="row-label" data-i18n="settings.row.web-update">Web UI Update</span>
             <div>
-              <label style="font-size:11px;color:var(--text3);">Web UI file (.bin)</label>
+              <label style="font-size:11px;color:var(--text3);" data-i18n="label.web-ui-file">Web UI file (.bin)</label>
               <input type="file" id="ota-web-file" accept=".bin" class="s-input" style="padding:5px 10px;margin-top:4px;">
             </div>
-            <button class="s-btn primary" id="ota-web-upload">Upload Web UI</button>
+            <button class="s-btn primary" id="ota-web-upload" data-i18n="button.upload-web-ui">Upload Web UI</button>
             <progress id="ota-web-progress" max="100" value="0" style="display:none;"></progress>
             <span id="ota-web-status" class="field-status"></span>
           </div>
           <!-- Backup / Restore -->
           <div class="settings-row" data-help="backup" style="flex-direction:column;align-items:stretch;gap:8px;">
-            <span class="row-label">Backup / Restore</span>
+            <span class="row-label" data-i18n="settings.row.backup">Backup / Restore</span>
             <div style="display:flex;gap:6px;flex-wrap:wrap;">
-              <button class="s-btn" id="backup-export">Export Backup</button>
-              <button class="s-btn" id="backup-import-btn">Import Backup</button>
+              <button class="s-btn" id="backup-export" data-i18n="button.export-backup">Export Backup</button>
+              <button class="s-btn" id="backup-import-btn" data-i18n="button.import-backup">Import Backup</button>
               <input type="file" id="backup-file" accept=".json" style="display:none">
-              <button class="s-btn danger" id="factory-reset-btn">Factory Reset</button>
+              <button class="s-btn danger" id="factory-reset-btn" data-i18n="button.factory-reset">Factory Reset</button>
             </div>
             <span id="backup-status" class="field-status"></span>
           </div>
           <!-- Reboot -->
           <div class="settings-row">
-            <span class="row-label danger" id="reboot-btn" style="cursor:pointer;">Reboot Device</span>
+            <span class="row-label danger" id="reboot-btn" data-i18n="settings.row.reboot" style="cursor:pointer;">Reboot Device</span>
             <div class="row-right"><span class="row-chevron">›</span></div>
           </div>
           <!-- Update channel -->
           <div class="settings-row">
-            <span class="row-label">Software updates</span>
+            <span class="row-label" data-i18n="settings.row.software-updates">Software updates</span>
             <div style="display:flex;align-items:center;gap:8px;">
               <span style="font-size:12px;color:var(--text2);" id="update-channel-label">Stable only</span>
               <div class="s-toggle" id="update-channel-toggle"></div>
               <input type="checkbox" id="update-channel-beta" style="display:none">
-              <button class="s-btn" id="check-updates-btn">Check</button>
+              <button class="s-btn" id="check-updates-btn" data-i18n="button.check">Check</button>
             </div>
           </div>
         </div>
