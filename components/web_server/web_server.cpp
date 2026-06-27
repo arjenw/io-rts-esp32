@@ -2623,6 +2623,7 @@ static esp_err_t api_info_get(httpd_req_t *req)
     cJSON_AddStringToObject(obj, "compile_date", desc->date);
     cJSON_AddStringToObject(obj, "compile_time", desc->time);
     cJSON_AddStringToObject(obj, "idf_ver",      desc->idf_ver);
+    cJSON_AddStringToObject(obj, "board",        CONFIG_BOARD_NAME);
 
     FILE *vf = fopen(WEB_BASE_PATH "/version.json", "r");
     if (vf) {

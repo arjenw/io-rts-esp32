@@ -2,6 +2,14 @@ menu "IO RTS Project Configuration"
 
     orsource "$IDF_PATH/examples/common_components/env_caps/$IDF_TARGET/Kconfig.env_caps"
 
+    config BOARD_NAME
+        string "Board identifier"
+        default "heltec"
+        help
+            Short name used to select the correct firmware asset during OTA updates
+            (e.g. "heltec", "lilygo-t3s3", "lilygo-lora32"). Must match the asset
+            prefix in GitHub releases.
+
     config CMD_LINE_MANAGEMENT_DEFAULT_PWD
         string "Command line password"
         default "io-rts-esp32"
