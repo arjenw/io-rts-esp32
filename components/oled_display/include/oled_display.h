@@ -14,12 +14,12 @@ esp_err_t oled_init(void);
 /* Screen layout (rows 0-7):
  *  0  "io-homecontrol"       title
  *  1  "--------------------" separator
- *  2  "TX > AABBCC"          last TX device
- *  3  "  OPEN"               last TX cmd name
- *  4  "--------------------" separator
- *  5  "RX < AABBCC"          last RX device
- *  6  "  FE  POS:75%"        last RX cmd + position
- *  7  "  RSSI:-87dBm"        last RX RSSI (or status msg)
+ *  2  "TX> AABBCC 0x31"      last TX: device + cmd  (TX section row 1/2)
+ *  3  (blank)                                         (TX section row 2/2)
+ *  4  (blank)
+ *  5  "--------------------" separator
+ *  6  "RX< AABBCC FE" + bars last RX + RSSI bars     (RX section row 1/2)
+ *  7  "Ready"                transient status msg     (RX section row 2/2)
  */
 void oled_show_tx(const char *cmd_name, const char *device_id);
 void oled_show_rx(const char *device_id, const char *cmd_hex,

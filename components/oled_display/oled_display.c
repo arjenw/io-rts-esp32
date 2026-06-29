@@ -168,7 +168,7 @@ static StackType_t    s_task_stack[2048];
 
 static StaticTimer_t  s_timer_buf;
 static TimerHandle_t  s_timer;
-static int            s_last_rssi = 0;
+
 
 /* ---- Low-level I2C helpers (called only from oled_task or init) ---- */
 
@@ -205,16 +205,51 @@ static void oled_print_line(uint8_t row, const char *text)
     send_data(line, OLED_COLS);
 }
 
-/* ---- Timer callback: restore RSSI line after status message ---- */
+/* ---- RSSI bar graph (3 vertical bars, right-aligned at cols 120-127) ---- */
+
+static void oled_draw_rssi_bars(uint8_t line[OLED_COLS], int rssi)
+{
+    int level;
+    if (rssi == 0)                level = 0;
+    else if (rssi >= -65)         level = 3;
+    else if (rssi >= -80)         level = 2;
+    else if (rssi >= -95)         level = 1;
+    else                          level = 0;
+
+    static const uint8_t bars[4][8] = {
+        {0x80,0x80,0x00,0x80,0x80,0x00,0x80,0x80},
+        {0xE0,0xE0,0x00,0x80,0x80,0x00,0x80,0x80},
+        {0xE0,0xE0,0x00,0xF8,0xF8,0x00,0x80,0x80},
+        {0xE0,0xE0,0x00,0xF8,0xF8,0x00,0xFE,0xFE},
+    };
+    memcpy(&line[OLED_COLS - 8], bars[level], 8);
+}
+
+static void oled_print_line_bars(uint8_t row, const char *text, int rssi)
+{
+    uint8_t line[OLED_COLS];
+    memset(line, 0, sizeof(line));
+    if (text) {
+        for (size_t i = 0; i < MAX_CHARS && text[i]; i++) {
+            uint8_t c = (uint8_t)text[i];
+            if (c < 0x20 || c > 0x7F) c = 0x20;
+            memcpy(&line[i * OLED_CHAR_W], font6x8[c - 0x20], OLED_CHAR_W);
+        }
+    }
+    oled_draw_rssi_bars(line, rssi);
+    send_cmd(0xB0 | row);
+    send_cmd(0x00);
+    send_cmd(0x10);
+    send_data(line, OLED_COLS);
+}
+
+/* ---- Timer callback: clear status message after 4 seconds ---- */
 
 static void status_clear_cb(TimerHandle_t xTimer)
 {
     (void)xTimer;
     oled_evt_t evt = { .type = OLED_EVT_STATUS, .position_pct = -1, .rssi = 0 };
-    if (s_last_rssi != 0)
-        snprintf(evt.cmd_str, sizeof(evt.cmd_str), "  RSSI:%ddBm", s_last_rssi);
-    else
-        evt.cmd_str[0] = '\0';
+    evt.cmd_str[0] = '\0';
     xQueueSend(s_queue, &evt, 0);
 }
 
@@ -222,32 +257,23 @@ static void status_clear_cb(TimerHandle_t xTimer)
 
 static void oled_task(void *arg)
 {
+    (void)arg;
     oled_evt_t evt;
     char buf[22];
     for (;;) {
         if (!xQueueReceive(s_queue, &evt, portMAX_DELAY)) continue;
         switch (evt.type) {
         case OLED_EVT_TX:
-            snprintf(buf, sizeof(buf), "TX > %.6s", evt.device_id);
+            snprintf(buf, sizeof(buf), "TX> %.6s %.4s", evt.device_id, evt.cmd_str);
             oled_print_line(2, buf);
-            snprintf(buf, sizeof(buf), "  %.18s", evt.cmd_str);
-            oled_print_line(3, buf);
             break;
         case OLED_EVT_RX:
-            s_last_rssi = evt.rssi;
-            snprintf(buf, sizeof(buf), "RX < %.6s", evt.device_id);
-            oled_print_line(5, buf);
-            if (evt.position_pct >= 0)
-                snprintf(buf, sizeof(buf), "  %.2s  POS:%d%%", evt.cmd_str, evt.position_pct);
-            else
-                snprintf(buf, sizeof(buf), "  %.2s", evt.cmd_str);
-            oled_print_line(6, buf);
-            snprintf(buf, sizeof(buf), "  RSSI:%ddBm", evt.rssi);
-            oled_print_line(7, buf);
+            snprintf(buf, sizeof(buf), "RX< %.6s %.2s", evt.device_id, evt.cmd_str);
+            oled_print_line_bars(6, buf, evt.rssi);
             break;
         case OLED_EVT_STATUS:
             snprintf(buf, sizeof(buf), "%.21s", evt.cmd_str);
-            oled_print_line(7, buf);
+            oled_print_line(7, buf[0] ? buf : NULL);
             break;
         }
     }
@@ -319,7 +345,7 @@ esp_err_t oled_init(void)
         oled_print_line(p, NULL);
     oled_print_line(0, "io-homecontrol");
     oled_print_line(1, "--------------------");
-    oled_print_line(4, "--------------------");
+    oled_print_line(5, "--------------------");
 
     /* Create queue and task — all I2C access goes through the task from here */
     s_queue = xQueueCreateStatic(OLED_QUEUE_DEPTH, sizeof(oled_evt_t),
@@ -327,7 +353,7 @@ esp_err_t oled_init(void)
     xTaskCreateStatic(oled_task, "oled_task", 2048, NULL,
                       tskIDLE_PRIORITY + 1, s_task_stack, &s_task_buf);
 
-    /* One-shot 4s timer to restore RSSI line after a status message */
+    /* One-shot 4s timer to clear transient status messages */
     s_timer = xTimerCreateStatic("oled_clr", pdMS_TO_TICKS(4000),
                                  pdFALSE, NULL, status_clear_cb, &s_timer_buf);
 
