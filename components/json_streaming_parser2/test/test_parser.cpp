@@ -206,12 +206,13 @@ bool test_jsonpath_withArray() {
 }
 
 bool test_jsonpath_toString() {
-    // Build path: document → object("a") → array
-    JsonPath p = JsonDoc.withObject("a").withArray();
+    // Build path: document → object("a") → array("items")
+    JsonPath p = JsonDoc.withObject("a").withArray("items");
     std::string s = p.toString();
     CHECK(s.find("<object>") != std::string::npos, "toString should contain <object>");
     CHECK(s.find("<array>") != std::string::npos, "toString should contain <array>");
     CHECK(s.find("a") != std::string::npos, "toString should contain key 'a'");
+    CHECK(s.find("items") != std::string::npos, "toString should contain key 'items'");
     printf("  OK: JsonPath::toString\n");
     return true;
 }
@@ -221,6 +222,304 @@ bool test_jsonpath_toString_document() {
     CHECK(s.empty() || s == "<object>" || s.find("ument") != std::string::npos,
           "document toString should not crash");
     printf("  OK: JsonPath::toString (document)\n");
+    return true;
+}
+
+bool test_jsonpath_startsWith_self() {
+    auto p = JsonDoc.withObject("a");
+    CHECK(p.startsWith(p), "path should start with itself");
+    printf("  OK: JsonPath::startsWith self\n");
+    return true;
+}
+
+bool test_jsonpath_startsWith_parent() {
+    auto parent = JsonDoc;
+    auto child = parent.withObject("a");
+    CHECK(child.startsWith(parent), "child should start with parent");
+    printf("  OK: JsonPath::startsWith parent\n");
+    return true;
+}
+
+bool test_jsonpath_startsWith_immediate_parent() {
+    auto gp = JsonDoc;
+    auto parent = gp.withObject("a");
+    auto child = parent.withObject("b");
+    CHECK(child.startsWith(parent), "grandchild should start with immediate parent");
+    printf("  OK: JsonPath::startsWith immediate parent\n");
+    return true;
+}
+
+bool test_jsonpath_startsWith_grandparent_fails() {
+    auto gp = JsonDoc;
+    auto parent = gp.withObject("a");
+    auto child = parent.withObject("b");
+    CHECK(!child.startsWith(gp), "grandchild should NOT start with grandparent (only direct parent)");
+    printf("  OK: JsonPath::startsWith grandparent fails\n");
+    return true;
+}
+
+bool test_jsonpath_startsWith_different() {
+    auto p1 = JsonDoc.withObject("a");
+    auto p2 = JsonDoc.withObject("b");
+    CHECK(!p1.startsWith(p2), "different paths should not match");
+    printf("  OK: JsonPath::startsWith different\n");
+    return true;
+}
+
+bool test_jsonpath_endsWith_self() {
+    auto p = JsonDoc.withObject("a");
+    CHECK(p.endsWith(p), "path should end with itself");
+    printf("  OK: JsonPath::endsWith self\n");
+    return true;
+}
+
+bool test_jsonpath_endsWith_bare_object() {
+    auto p = JsonDoc.withObject();
+    CHECK(p.endsWith(JsonObject), "keyless object path should end with JsonObject");
+    printf("  OK: JsonPath::endsWith bare object\n");
+    return true;
+}
+
+bool test_jsonpath_endsWith_bare_array() {
+    auto p = JsonDoc.withArray();
+    CHECK(p.endsWith(JsonArray), "keyless array path should end with JsonArray");
+    printf("  OK: JsonPath::endsWith bare array\n");
+    return true;
+}
+
+bool test_jsonpath_endsWith_type_mismatch() {
+    CHECK(!JsonDoc.withObject("a").endsWith(JsonArray), "object path should not end with array type");
+    CHECK(!JsonDoc.withArray("a").endsWith(JsonObject), "array path should not end with object type");
+    printf("  OK: JsonPath::endsWith type mismatch\n");
+    return true;
+}
+
+bool test_jsonpath_depth_document() {
+    CHECK(JsonDoc.depth() == 1, "document depth should be 1");
+    printf("  OK: JsonPath::depth document\n");
+    return true;
+}
+
+bool test_jsonpath_depth_one_level() {
+    auto p = JsonDoc.withObject("a");
+    CHECK(p.depth() == 2, "doc+object depth should be 2");
+    printf("  OK: JsonPath::depth one level\n");
+    return true;
+}
+
+bool test_jsonpath_depth_two_levels() {
+    auto p = JsonDoc.withObject("a").withArray("items");
+    CHECK(p.depth() == 3, "doc+object+array depth should be 3");
+    printf("  OK: JsonPath::depth two levels\n");
+    return true;
+}
+
+bool test_jsonpath_const_JsonObject() {
+    CHECK(JsonObject.type == ELEM_OBJECT, "JsonObject should have type ELEM_OBJECT");
+    CHECK(JsonObject.parent == nullptr, "JsonObject should have no parent");
+    CHECK(!JsonObject.key.has_value(), "JsonObject should have no key");
+    printf("  OK: JsonPath const JsonObject\n");
+    return true;
+}
+
+bool test_jsonpath_const_JsonArray() {
+    CHECK(JsonArray.type == ELEM_ARRAY, "JsonArray should have type ELEM_ARRAY");
+    CHECK(JsonArray.parent == nullptr, "JsonArray should have no parent");
+    CHECK(!JsonArray.key.has_value(), "JsonArray should have no key");
+    printf("  OK: JsonPath const JsonArray\n");
+    return true;
+}
+
+bool test_jsonpath_withObject_index() {
+    JsonPath p = JsonDoc.withArray("a").withObject(0);
+    CHECK(p.type == ELEM_OBJECT, "withObject(int) should set type to ELEM_OBJECT");
+    CHECK(p.index.has_value() && p.index.value() == 0, "withObject(int) should set index");
+    CHECK(!p.key.has_value(), "withObject(int) should not set key");
+    printf("  OK: JsonPath::withObject(int)\n");
+    return true;
+}
+
+bool test_jsonpath_withObject_index_nonarray() {
+    JsonPath p = JsonDoc.withObject("o").withObject(0);
+    CHECK(p.type == ELEM_INVALID, "withObject(int) on non-array should return ELEM_INVALID");
+    printf("  OK: JsonPath::withObject(int) on non-array\n");
+    return true;
+}
+
+bool test_jsonpath_withObject_key_index() {
+    // Valid on non-array parent (object or doc): returns ELEM_OBJECT with key+index
+    JsonPath p = JsonDoc.withObject("o").withObject("key", 0);
+    CHECK(p.type == ELEM_OBJECT, "withObject(string,int) should set type to ELEM_OBJECT");
+    CHECK(p.key.has_value() && p.key.value() == "key", "withObject(string,int) should set key");
+    CHECK(p.index.has_value() && p.index.value() == 0, "withObject(string,int) should set index");
+    // Invalid on array parent: arrays use only index, no key
+    JsonPath p2 = JsonDoc.withArray("a").withObject("key", 0);
+    CHECK(p2.type == ELEM_INVALID, "withObject(string,int) on array should return ELEM_INVALID");
+    printf("  OK: JsonPath::withObject(string,int)\n");
+    return true;
+}
+
+bool test_jsonpath_withArray_index() {
+    // Valid on non-object parent (array or doc): returns ELEM_ARRAY with just index
+    JsonPath p = JsonDoc.withArray("a").withArray(0);
+    CHECK(p.type == ELEM_ARRAY, "withArray(int) should set type to ELEM_ARRAY");
+    CHECK(p.index.has_value() && p.index.value() == 0, "withArray(int) should set index");
+    CHECK(!p.key.has_value(), "withArray(int) should not set key");
+    // Invalid on object parent: objects use keys, not index
+    JsonPath p2 = JsonDoc.withObject("o").withArray(0);
+    CHECK(p2.type == ELEM_INVALID, "withArray(int) on object should return ELEM_INVALID");
+    printf("  OK: JsonPath::withArray(int)\n");
+    return true;
+}
+
+bool test_jsonpath_withArray_key_index() {
+    // Valid on non-array parent: returns ELEM_ARRAY with key+index
+    JsonPath p = JsonDoc.withObject("o").withArray("items", 0);
+    CHECK(p.type == ELEM_ARRAY, "withArray(string,int) should set type to ELEM_ARRAY");
+    CHECK(p.key.has_value() && p.key.value() == "items", "withArray(string,int) should set key");
+    CHECK(p.index.has_value() && p.index.value() == 0, "withArray(string,int) should set index");
+    // Invalid on array parent: arrays can't have named sub-arrays
+    JsonPath p2 = JsonDoc.withArray("a").withArray("items", 0);
+    CHECK(p2.type == ELEM_INVALID, "withArray(string,int) on array should return ELEM_INVALID");
+    printf("  OK: JsonPath::withArray(string,int)\n");
+    return true;
+}
+
+bool test_jsonpath_equality_lenient_index() {
+    JsonPath a = JsonDoc.withObject("a");
+    JsonPath b = JsonDoc.withObject("a");
+    b.index = 5;
+    CHECK(a == b, "paths differing only in index presence should be equal (lenient)");
+    JsonPath c = JsonDoc.withObject("a");
+    c.index = 5;
+    JsonPath d = JsonDoc.withObject("a");
+    d.index = 3;
+    CHECK(!(c == d), "paths with different indices should not be equal");
+    printf("  OK: JsonPath::operator== lenient index\n");
+    return true;
+}
+
+bool test_jsonpath_equality_indexed_vs_unindexed_object_in_array() {
+    // withObject() (no index) should equal withObject(3) inside an array
+    // because operator== is lenient when one side lacks an index
+    JsonPath indexed = JsonDoc.withArray().withObject(3);
+    JsonPath unindexed = JsonDoc.withArray().withObject();
+    CHECK(indexed == unindexed, "indexed(3) == unindexed  (lenient)");
+    CHECK(unindexed == indexed, "unindexed == indexed(3)  (symmetric)");
+
+    // Same explicit index should be equal
+    JsonPath a5 = JsonDoc.withArray().withObject(5);
+    JsonPath b5 = JsonDoc.withArray().withObject(5);
+    CHECK(a5 == b5, "indexed(5) == indexed(5)");
+
+    // Different explicit indices should NOT be equal
+    JsonPath c3 = JsonDoc.withArray().withObject(3);
+    CHECK(!(a5 == c3), "indexed(5) != indexed(3)");
+    printf("  OK: JsonPath::indexed vs unindexed object in array\n");
+    return true;
+}
+
+bool test_jsonpath_indexed_toString() {
+    JsonPath p = JsonDoc.withArray("arr").withObject(0);
+    std::string s = p.toString();
+    CHECK(s.find("[0]") != std::string::npos, "indexed path toString should contain '[0]'");
+    printf("  OK: JsonPath::indexed toString\n");
+    return true;
+}
+
+bool test_jsonpath_contains_self() {
+    auto p = JsonDoc.withObject("a");
+    CHECK(p.contains(p), "path should contain itself");
+    printf("  OK: JsonPath::contains self\n");
+    return true;
+}
+
+bool test_jsonpath_contains_parent() {
+    auto parent = JsonDoc.withObject("a");
+    auto child = parent.withArray("items");
+    CHECK(child.contains(parent), "child should contain parent");
+    printf("  OK: JsonPath::contains parent\n");
+    return true;
+}
+
+bool test_jsonpath_contains_fails_different() {
+    auto p1 = JsonDoc.withObject("a");
+    auto p2 = JsonDoc.withObject("b");
+    CHECK(!p1.contains(p2), "different paths should not contain each other");
+    printf("  OK: JsonPath::contains fails for different paths\n");
+    return true;
+}
+
+bool test_jsonpath_contains_fails_grandparent() {
+    auto gp = JsonDoc;
+    auto parent = gp.withObject("a");
+    auto child = parent.withArray("items");
+    CHECK(!child.contains(gp), "grandchild should NOT contain grandparent");
+    printf("  OK: JsonPath::contains fails for grandparent\n");
+    return true;
+}
+
+// ── JsonPath index tracking tests ─────────────────────────────
+
+struct IndexEvent {
+    int type;
+    std::string path;
+    bool hasIndex;
+    int index;
+};
+
+std::vector<IndexEvent> indexEvents;
+
+void indexEventCallback(JsonPathEvent evt) {
+    IndexEvent e;
+    e.type = evt.type;
+    e.path = evt.path.toString();
+    e.hasIndex = evt.index.has_value();
+    e.index = evt.index.value_or(-1);
+    indexEvents.push_back(e);
+}
+
+bool run_index_test(const char* name, const char* json,
+                    std::vector<std::tuple<int, int>> expected) {
+    tests_run++;
+    indexEvents.clear();
+    JsonPathEventCB_t cb = indexEventCallback;
+    JsonStreamingParser parser(JsonPathHandler(cb));
+
+    for (const char* p = json; *p; p++) {
+        parser.parse(*p);
+        if (parser.hasParseError()) {
+            printf("  FAIL: %s\n", name);
+            printf("    Error at offset %d: %s\n", parser.getCharacterCount(), parser.getErrorMessage());
+            return false;
+        }
+    }
+
+    if (indexEvents.size() != expected.size()) {
+        printf("  FAIL: %s\n", name);
+        printf("    Expected %zu events, got %zu\n", expected.size(), indexEvents.size());
+        for (auto& e : indexEvents)
+            printf("      %s idx=%s%d\n", eventName(e.type), e.hasIndex ? "" : "none(", e.hasIndex ? e.index : -1);
+        return false;
+    }
+
+    for (size_t i = 0; i < indexEvents.size(); i++) {
+        int expType = std::get<0>(expected[i]);
+        int expIdx = std::get<1>(expected[i]);
+        bool expHas = expIdx != -1;
+        if (indexEvents[i].type != expType ||
+            indexEvents[i].hasIndex != expHas ||
+            indexEvents[i].index != expIdx) {
+            printf("  FAIL: %s\n", name);
+            printf("    Event[%zu]: expected (%s, has=%d, idx=%d), got (%s, has=%d, idx=%d)\n",
+                   i, eventName(expType), expHas, expIdx,
+                   eventName(indexEvents[i].type), indexEvents[i].hasIndex, indexEvents[i].index);
+            return false;
+        }
+    }
+
+    printf("  OK: %s\n", name);
+    tests_passed++;
     return true;
 }
 
@@ -466,6 +765,44 @@ int main() {
     test_jsonpath_toString();
     test_jsonpath_toString_document();
 
+    print_section("JsonPath: startsWith");
+    test_jsonpath_startsWith_self();
+    test_jsonpath_startsWith_parent();
+    test_jsonpath_startsWith_immediate_parent();
+    test_jsonpath_startsWith_grandparent_fails();
+    test_jsonpath_startsWith_different();
+
+    print_section("JsonPath: endsWith");
+    test_jsonpath_endsWith_self();
+    test_jsonpath_endsWith_bare_object();
+    test_jsonpath_endsWith_bare_array();
+    test_jsonpath_endsWith_type_mismatch();
+
+    print_section("JsonPath: depth");
+    test_jsonpath_depth_document();
+    test_jsonpath_depth_one_level();
+    test_jsonpath_depth_two_levels();
+
+    print_section("JsonPath: const values");
+    test_jsonpath_const_JsonObject();
+    test_jsonpath_const_JsonArray();
+
+    print_section("JsonPath: indexed construction / toString");
+    test_jsonpath_withObject_index();
+    test_jsonpath_withObject_index_nonarray();
+    test_jsonpath_withObject_key_index();
+    test_jsonpath_withArray_index();
+    test_jsonpath_withArray_key_index();
+    test_jsonpath_equality_lenient_index();
+    test_jsonpath_equality_indexed_vs_unindexed_object_in_array();
+    test_jsonpath_indexed_toString();
+
+    print_section("JsonPath: contains");
+    test_jsonpath_contains_self();
+    test_jsonpath_contains_parent();
+    test_jsonpath_contains_fails_different();
+    test_jsonpath_contains_fails_grandparent();
+
     print_section("JsonPathHandler: integration");
     run_path_test("simple object path",
         R"({ "a": 1 })",
@@ -498,12 +835,12 @@ int main() {
         R"([{"a":1},{"a":2}])",
         {{EVENT_START_DOCUMENT, ""},
          {EVENT_START_ARRAY,   "/<array>"},
-         {EVENT_START_OBJECT,  "/<array>/<object>"},
-         {EVENT_VALUE,         "/<array>/<object>"},
-         {EVENT_END_OBJECT,    "/<array>/<object>"},
-         {EVENT_START_OBJECT,  "/<array>/<object>"},
-         {EVENT_VALUE,         "/<array>/<object>"},
-         {EVENT_END_OBJECT,    "/<array>/<object>"},
+         {EVENT_START_OBJECT,  "/<array>/<object>[0]"},
+         {EVENT_VALUE,         "/<array>/<object>[0]"},
+         {EVENT_END_OBJECT,    "/<array>/<object>[0]"},
+         {EVENT_START_OBJECT,  "/<array>/<object>[1]"},
+         {EVENT_VALUE,         "/<array>/<object>[1]"},
+         {EVENT_END_OBJECT,    "/<array>/<object>[1]"},
          {EVENT_END_ARRAY,     "/<array>"},
          {EVENT_END_DOCUMENT,  ""}});
 
@@ -512,9 +849,9 @@ int main() {
         {{EVENT_START_DOCUMENT, ""},
          {EVENT_START_OBJECT,  "/<object>"},
          {EVENT_START_ARRAY,   "/<object>/items <array>"},
-         {EVENT_START_OBJECT,  "/<object>/items <array>/<object>"},
-         {EVENT_VALUE,         "/<object>/items <array>/<object>"},
-         {EVENT_END_OBJECT,    "/<object>/items <array>/<object>"},
+         {EVENT_START_OBJECT,  "/<object>/items <array>/<object>[0]"},
+         {EVENT_VALUE,         "/<object>/items <array>/<object>[0]"},
+         {EVENT_END_OBJECT,    "/<object>/items <array>/<object>[0]"},
          {EVENT_END_ARRAY,     "/<object>/items <array>"},
          {EVENT_END_OBJECT,    "/<object>"},
          {EVENT_END_DOCUMENT,  ""}});
@@ -527,6 +864,64 @@ int main() {
          {EVENT_VALUE,         "/<object>", "42"},
          {EVENT_VALUE,         "/<object>", "\"hi\""},
          {EVENT_END_OBJECT,    "/<object>", ""},
+         {EVENT_END_DOCUMENT,  "", ""}});
+
+    print_section("JsonPathHandler: array index tracking");
+    run_index_test("array of primitives indices",
+        R"([10, 20, 30])",
+         {{EVENT_START_DOCUMENT, -1},
+          {EVENT_START_ARRAY,    -1},
+          {EVENT_VALUE,          0},
+          {EVENT_VALUE,          1},
+          {EVENT_VALUE,          2},
+          {EVENT_END_ARRAY,      -1},
+          {EVENT_END_DOCUMENT,   -1}});
+
+    run_index_test("array of objects indices",
+        R"([{"a":1},{"a":2}])",
+        {{EVENT_START_DOCUMENT, -1},
+          {EVENT_START_ARRAY,   -1},
+          {EVENT_START_OBJECT,  0},
+          {EVENT_VALUE,         -1},
+          {EVENT_END_OBJECT,    0},
+          {EVENT_START_OBJECT,  1},
+          {EVENT_VALUE,         -1},
+          {EVENT_END_OBJECT,    1},
+          {EVENT_END_ARRAY,     -1},
+          {EVENT_END_DOCUMENT,  -1}});
+
+    run_index_test("nested object within array has index from parent array",
+        R"({"items": [{"x":10}]})",
+        {{EVENT_START_DOCUMENT, -1},
+          {EVENT_START_OBJECT,  -1},
+          {EVENT_START_ARRAY,   -1},
+          {EVENT_START_OBJECT,  0},
+          {EVENT_VALUE,         -1},
+          {EVENT_END_OBJECT,    0},
+          {EVENT_END_ARRAY,     -1},
+          {EVENT_END_OBJECT,    -1},
+          {EVENT_END_DOCUMENT,  -1}});
+
+
+    print_section("JsonPathHandler: single-quoted JSON");
+    run_path_value_test("single-quoted keys and values",
+        R"({ 'a': 'hello', 'b': 42 })",
+        {{EVENT_START_DOCUMENT, "", ""},
+         {EVENT_START_OBJECT,  "/<object>", ""},
+         {EVENT_VALUE,         "/<object>", "\"hello\""},
+         {EVENT_VALUE,         "/<object>", "42"},
+         {EVENT_END_OBJECT,    "/<object>", ""},
+         {EVENT_END_DOCUMENT,  "", ""}});
+
+    run_path_value_test("single-quoted array with nested objects",
+        R"([{'a': 1, 'b': 2}])",
+        {{EVENT_START_DOCUMENT, "", ""},
+         {EVENT_START_ARRAY,   "/<array>", ""},
+         {EVENT_START_OBJECT,  "/<array>/<object>[0]", ""},
+         {EVENT_VALUE,         "/<array>/<object>[0]", "1"},
+         {EVENT_VALUE,         "/<array>/<object>[0]", "2"},
+         {EVENT_END_OBJECT,    "/<array>/<object>[0]", ""},
+         {EVENT_END_ARRAY,     "/<array>", ""},
          {EVENT_END_DOCUMENT,  "", ""}});
 
     printf("\n=== Results: %d/%d passed ===\n", tests_passed, tests_run);

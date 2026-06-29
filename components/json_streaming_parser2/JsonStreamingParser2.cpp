@@ -524,7 +524,7 @@ bool JsonStreamingParser::isHexCharacter(char c)
 int JsonStreamingParser::getHexArrayAsDecimal(char hexArray[], int length)
 {
   int result = 0;
-  for (int i = length; i >= 0; i--)
+  for (int i = length - 1; i >= 0; i--)
   {
     char current = hexArray[length - i - 1];
     int value = 0;
@@ -706,7 +706,7 @@ void JsonStreamingParser::endUnicodeCharacter(int codepoint)
   {
     buffer[bufferPos] = (char)(codepoint);
   }
-  else if (codepoint <= 0x800)
+  else if (codepoint < 0x800)
   {
     buffer[bufferPos] = (char)((codepoint >> 6) | 0b11000000);
     increaseBufferPointer();

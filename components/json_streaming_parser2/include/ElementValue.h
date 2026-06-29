@@ -5,7 +5,8 @@
 
 union Variant {
   bool boolValue;
-  float numValue;
+  float floatValue;
+  long longValue;
   const char* stringValue;
 };
 
@@ -23,13 +24,13 @@ struct ElementValue {
 
   public:
     ElementValue with(float value) {
-      data.numValue = value;
+      data.floatValue = value;
       type = Type_Float;
       return *this;
     }
 
     ElementValue with(long value) {
-      data.numValue = value;
+      data.longValue = value;
       type = Type_Int;
       return *this;
     }
@@ -60,11 +61,11 @@ struct ElementValue {
     }
 
     float getFloat() {
-      return data.numValue;
+      return data.floatValue;
     }
 
     long getInt() {
-      return (long)data.numValue;
+      return (long)data.longValue;
     }
 
     bool isInt() {
