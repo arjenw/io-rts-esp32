@@ -416,6 +416,35 @@ int main() {
 { "a": true })",
         {"START_DOCUMENT", "START_OBJECT", "VALUE", "END_OBJECT", "END_DOCUMENT"});
 
+    print_section("Parser: single-quoted strings");
+    run_parser_test("single-quoted string value",
+        R"({ 'a': 'hello' })",
+        {"START_DOCUMENT", "START_OBJECT", "VALUE", "END_OBJECT", "END_DOCUMENT"});
+    run_parser_test("mixed quotes: double-quoted string with apostrophe",
+        R"({ "a": "It's a nice day" })",
+        {"START_DOCUMENT", "START_OBJECT", "VALUE", "END_OBJECT", "END_DOCUMENT"});
+    run_parser_test("mixed quotes: single-quoted string with embedded double quotes",
+        R"({ 'a': 'I quote: "blah"' })",
+        {"START_DOCUMENT", "START_OBJECT", "VALUE", "END_OBJECT", "END_DOCUMENT"});
+    run_parser_test("single-quoted keys",
+        R"({ 'a': 1, 'b': 2 })",
+        {"START_DOCUMENT", "START_OBJECT", "VALUE", "VALUE", "END_OBJECT", "END_DOCUMENT"});
+    run_parser_test("array of single-quoted strings",
+        R"(['x', 'y', 'z'])",
+        {"START_DOCUMENT", "START_ARRAY", "VALUE", "VALUE", "VALUE", "END_ARRAY", "END_DOCUMENT"});
+    run_parser_test("nested single-quoted strings",
+        R"([{'a': 'hello'}, {'a': 'world'}])",
+        {"START_DOCUMENT", "START_ARRAY",
+         "START_OBJECT", "VALUE", "END_OBJECT",
+         "START_OBJECT", "VALUE", "END_OBJECT",
+         "END_ARRAY", "END_DOCUMENT"});
+    run_parser_test("single-quoted string with escaped quote",
+        R"({ 'a': 'it\'s escaped' })",
+        {"START_DOCUMENT", "START_OBJECT", "VALUE", "END_OBJECT", "END_DOCUMENT"});
+    run_parser_test("single-quoted string with apostrophe (unescaped inside dquotes)",
+        R"({ "msg": "Don't panic" })",
+        {"START_DOCUMENT", "START_OBJECT", "VALUE", "END_OBJECT", "END_DOCUMENT"});
+
     print_section("Parser: invalid JSON");
     run_parser_test("trailing comma in array (lenient)",
         R"([1,])",

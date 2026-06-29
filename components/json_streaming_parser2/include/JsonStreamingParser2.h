@@ -72,6 +72,8 @@ class JsonStreamingParser {
     JsonParserCB_t cbFun;
 
     bool doEmitWhitespace = false;
+
+    char stringDelimiter = 0;
 	
     // fixed length buffer array to prepare for c code
     char buffer[JSON_PARSER_BUFFER_MAX_LENGTH];
@@ -101,7 +103,7 @@ class JsonStreamingParser {
 
     void startValue(char c);
 
-    void startKey();
+    void startKey(char c);
 
     void processEscapeCharacters(char c);
 
@@ -115,7 +117,7 @@ class JsonStreamingParser {
 
     void startNumber(char c);
 
-    void startString();
+    void startString(char c);
 
     void startObject();
 

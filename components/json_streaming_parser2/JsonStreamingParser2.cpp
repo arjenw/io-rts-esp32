@@ -46,7 +46,7 @@ void JsonStreamingParser::parse(char c)
   switch (state)
   {
   case STATE_IN_STRING:
-    if (c == '"')
+    if (c == stringDelimiter)
     {
       endString();
     }
@@ -83,9 +83,9 @@ void JsonStreamingParser::parse(char c)
     {
       endObject();
     }
-    else if (c == '"')
+    else if (c == '"' || c == '\'')
     {
-      startKey();
+      startKey(c);
     }
     else
     {
@@ -310,6 +310,7 @@ void JsonStreamingParser::endString()
     // "Unexpected end of string.");
   }
   bufferPos = 0;
+  stringDelimiter = 0;
 }
 
 void JsonStreamingParser::startValue(char c)
@@ -322,9 +323,9 @@ void JsonStreamingParser::startValue(char c)
   {
     startObject();
   }
-  else if (c == '"')
+  else if (c == '"' || c == '\'')
   {
-    startString();
+    startString(c);
   }
   else if (isDigit(c))
   {
@@ -386,11 +387,12 @@ void JsonStreamingParser::endArray()
   }
 }
 
-void JsonStreamingParser::startKey()
+void JsonStreamingParser::startKey(char c)
 {
   stack[stackPos] = STACK_KEY;
   stackPos++;
   state = STATE_IN_STRING;
+  stringDelimiter = c;
 }
 
 void JsonStreamingParser::endObject()
@@ -419,9 +421,9 @@ void JsonStreamingParser::endObject()
 
 void JsonStreamingParser::processEscapeCharacters(char c)
 {
-  if (c == '"')
+  if (c == stringDelimiter)
   {
-    buffer[bufferPos] = '"';
+    buffer[bufferPos] = stringDelimiter;
     increaseBufferPointer();
   }
   else if (c == '\\')
@@ -683,11 +685,12 @@ void JsonStreamingParser::startObject()
   stackPos++;
 }
 
-void JsonStreamingParser::startString()
+void JsonStreamingParser::startString(char c)
 {
   stack[stackPos] = STACK_STRING;
   stackPos++;
   state = STATE_IN_STRING;
+  stringDelimiter = c;
 }
 
 void JsonStreamingParser::startNumber(char c)
