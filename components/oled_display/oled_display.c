@@ -12,6 +12,7 @@
 #include "freertos/timers.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 static const char *TAG = "oled";
 
@@ -145,6 +146,16 @@ static const uint8_t font6x8[96][OLED_CHAR_W] = {
     {0xFF,0xFF,0xFF,0xFF,0xFF,0x00}, /* 0x7F DEL */
 };
 
+/* ---- Icon bitmaps for TX / RX direction (6 x 8 px, column-oriented, bit 0 = top) ---- */
+
+static const uint8_t icon_tx[OLED_CHAR_W] = {
+    0x20, 0x11, 0x09, 0x05, 0x01, 0x1F
+};
+
+static const uint8_t icon_rx[OLED_CHAR_W] = {
+    0x7C, 0x40, 0x50, 0x48, 0x44, 0x02
+};
+
 /* ---- Queue / task types (internal) ---- */
 
 #define OLED_QUEUE_DEPTH 8
@@ -225,18 +236,22 @@ static void oled_draw_rssi_bars(uint8_t line[OLED_COLS], int rssi)
     memcpy(&line[OLED_COLS - 8], bars[level], 8);
 }
 
-static void oled_print_line_bars(uint8_t row, const char *text, int rssi)
+/* ---- Print a line with an icon prepended and optional RSSI bars ---- */
+
+static void oled_print_icon_text(uint8_t row, const uint8_t icon[OLED_CHAR_W],
+                                 const char *text, int rssi)
 {
     uint8_t line[OLED_COLS];
     memset(line, 0, sizeof(line));
+    memcpy(line, icon, OLED_CHAR_W);
     if (text) {
-        for (size_t i = 0; i < MAX_CHARS && text[i]; i++) {
+        for (size_t i = 0; i < MAX_CHARS - 1 && text[i]; i++) {
             uint8_t c = (uint8_t)text[i];
             if (c < 0x20 || c > 0x7F) c = 0x20;
-            memcpy(&line[i * OLED_CHAR_W], font6x8[c - 0x20], OLED_CHAR_W);
+            memcpy(&line[(i + 1) * OLED_CHAR_W + 5], font6x8[c - 0x20], OLED_CHAR_W);
         }
     }
-    oled_draw_rssi_bars(line, rssi);
+    if (rssi <= 0) oled_draw_rssi_bars(line, rssi);
     send_cmd(0xB0 | row);
     send_cmd(0x00);
     send_cmd(0x10);
@@ -264,12 +279,12 @@ static void oled_task(void *arg)
         if (!xQueueReceive(s_queue, &evt, portMAX_DELAY)) continue;
         switch (evt.type) {
         case OLED_EVT_TX:
-            snprintf(buf, sizeof(buf), "TX> %.6s %.4s", evt.device_id, evt.cmd_str);
-            oled_print_line(2, buf);
+            snprintf(buf, sizeof(buf), "%.6s %.4s", evt.device_id, evt.cmd_str);
+            oled_print_icon_text(2, icon_tx, buf, 1);
             break;
         case OLED_EVT_RX:
-            snprintf(buf, sizeof(buf), "RX< %.6s %.2s", evt.device_id, evt.cmd_str);
-            oled_print_line_bars(6, buf, evt.rssi);
+            snprintf(buf, sizeof(buf), "%.6s %.2s", evt.device_id, evt.cmd_str);
+            oled_print_icon_text(6, icon_rx, buf, evt.rssi);
             break;
         case OLED_EVT_STATUS:
             snprintf(buf, sizeof(buf), "%.21s", evt.cmd_str);
