@@ -12,13 +12,13 @@ extern "C" {
 esp_err_t oled_init(void);
 
 /* Screen layout (rows 0-7):
- *  0  "io-homecontrol"          title
- *  1  "--------------------"    separator
- *  2  "AABBCC ↑CMD ↓FE ███"   device line 0 (separator → 2px gap →)
- *  3  "AABBCC ↓FE ███"        device line 1
+ *  0  "[io-logo] control"      title
+ *  1  "--------------------"   separator
+ *  2  "AABBCC ↑CMD ↓FE ███"    device line 0 (separator → 2px gap →)
+ *  3  "AABBCC ↓FE      ███"    device line 1
  *  4  "AABBCC ↑CMD"            device line 2
- *  5  "AABBCC ↑CMD ↓FE ███"   device line 3
- *  6  "--------------------"    separator
+ *  5  "AABBCC ↑CMD ↓FE ███"    device line 3
+ *  6  "--------------------"   separator
  *  7  "Ready"                  transient status msg
  *
  * Each device line occupies a full 8-pixel page but only uses the top 6 rows,

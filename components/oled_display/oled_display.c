@@ -167,6 +167,7 @@ typedef struct {
     int  rssi;
     bool has_tx;
     bool has_rx;
+    bool rx_first;
     TickType_t last_update;
 } oled_dev_line_t;
 
@@ -291,15 +292,19 @@ static int find_or_alloc_line(const char *device_id)
 /* Layout per device line (128 px):
  *  0-35   device name (6 chars)
  *  36-47  gap
- *  48-53  TX icon (6 px)
+ *  48-53  first icon (TX or RX, 6 px)
  *  54-56  gap (3 px)
- *  57-80  TX cmd text (4 chars max)
+ *  57-80  first cmd text (4 or 2 chars)
  *  81-83  gap (3 px)
- *  84-89  RX icon (6 px)
+ *  84-89  second icon (RX or TX, 6 px)
  *  90-92  gap (3 px)
- *  93-104 RX cmd text (2 chars max)
+ *  93-104 second cmd text (2 or 4 chars)
  *  105-119 gap
  *  120-127 RSSI signal bars (8 px)
+ *
+ *  TX part always uses 48/57 when first, 84/93 when second.
+ *  RX part always uses 84/93 when first, 48/57 when second.
+ *  Order depends on which event (TX or RX) arrived first for that line.
  */
 
 static void oled_render_dev_line(int slot)
@@ -317,21 +322,30 @@ static void oled_render_dev_line(int slot)
         }
     }
 
+    int tx_icon, tx_text, rx_icon, rx_text;
+    if (dev->rx_first) {
+        rx_icon = 48;   rx_text = 57;
+        tx_icon = 84;   tx_text = 93;
+    } else {
+        tx_icon = 48;   tx_text = 57;
+        rx_icon = 84;   rx_text = 93;
+    }
+
     if (dev->has_tx) {
-        memcpy(&line[48], icon_tx, OLED_CHAR_W);
+        memcpy(&line[tx_icon], icon_tx, OLED_CHAR_W);
         for (size_t i = 0; i < 4 && dev->tx_cmd[i]; i++) {
             uint8_t c = (uint8_t)dev->tx_cmd[i];
             if (c < 0x20 || c > 0x7F) c = 0x20;
-            memcpy(&line[57 + i * OLED_CHAR_W], font6x8[c - 0x20], OLED_CHAR_W);
+            memcpy(&line[tx_text + i * OLED_CHAR_W], font6x8[c - 0x20], OLED_CHAR_W);
         }
     }
 
     if (dev->has_rx) {
-        memcpy(&line[84], icon_rx, OLED_CHAR_W);
+        memcpy(&line[rx_icon], icon_rx, OLED_CHAR_W);
         for (size_t i = 0; i < 2 && dev->rx_cmd[i]; i++) {
             uint8_t c = (uint8_t)dev->rx_cmd[i];
             if (c < 0x20 || c > 0x7F) c = 0x20;
-            memcpy(&line[93 + i * OLED_CHAR_W], font6x8[c - 0x20], OLED_CHAR_W);
+            memcpy(&line[rx_text + i * OLED_CHAR_W], font6x8[c - 0x20], OLED_CHAR_W);
         }
         oled_draw_rssi_bars(line, dev->rssi);
     }
@@ -366,6 +380,7 @@ static void oled_task(void *arg)
         case OLED_EVT_TX: {
             int slot = find_or_alloc_line(evt.device_id);
             oled_dev_line_t *dev = &s_dev_lines[slot];
+            if (!dev->has_tx && !dev->has_rx) dev->rx_first = false;
             memcpy(dev->device_id, evt.device_id, sizeof(dev->device_id));
             const char *cmd = evt.cmd_str;
             if (cmd[0] == '0' && (cmd[1] == 'x' || cmd[1] == 'X')) cmd += 2;
@@ -378,6 +393,7 @@ static void oled_task(void *arg)
         case OLED_EVT_RX: {
             int slot = find_or_alloc_line(evt.device_id);
             oled_dev_line_t *dev = &s_dev_lines[slot];
+            if (!dev->has_tx && !dev->has_rx) dev->rx_first = true;
             memcpy(dev->device_id, evt.device_id, sizeof(dev->device_id));
             snprintf(dev->rx_cmd, sizeof(dev->rx_cmd), "%.2s", evt.cmd_str);
             dev->rssi  = evt.rssi;
@@ -488,7 +504,33 @@ esp_err_t oled_init(void)
         oled_print_line(p, NULL);
     memset(s_dev_lines, 0, sizeof(s_dev_lines));
     s_next_slot = 0;
-    oled_print_line(0, "io-homecontrol");
+    /* 12x7 "IO" logo row-bitmap: 7 rows, each stored as 2 bytes (12 MSB bits used) */
+    static const uint8_t logo_rows[][2] = {
+        {0xff, 0xf0}, {0x88, 0x10}, {0x88, 0x10}, {0x88, 0x10},
+        {0x88, 0x10}, {0x88, 0x10}, {0x8f, 0xf0}
+    };
+    uint8_t line[OLED_COLS];
+    memset(line, 0, sizeof(line));
+    /* Transpose rows→columns for SSD1306 (bit 0 = top pixel) */
+    for (int col = 0; col < 12; col++) {
+        uint8_t byte = 0;
+        for (int row = 0; row < 7; row++) {
+            uint16_t r = ((uint16_t)logo_rows[row][0] << 8) | logo_rows[row][1];
+            if (r & (0x8000 >> col)) byte |= (1 << row);
+        }
+        line[col] = byte << 1;
+    }
+    int pos = 12 + 4; /* logo + 2px gap + 2px shift */
+    const char *title = "control";
+    for (size_t i = 0; title[i]; i++) {
+        uint8_t c = (uint8_t)title[i];
+        if (c < 0x20 || c > 0x7F) c = 0x20;
+        memcpy(&line[pos + i * OLED_CHAR_W], font6x8[c - 0x20], OLED_CHAR_W);
+    }
+    send_cmd(0xB0 | 0);
+    send_cmd(0x00);
+    send_cmd(0x10);
+    send_data(line, OLED_COLS);
     oled_draw_hline(1, 3);
     oled_draw_hline(6, 3);
 
