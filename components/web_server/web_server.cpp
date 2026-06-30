@@ -48,6 +48,8 @@
 #include "NetworkConfig.hpp"
 #include "IoHomeConfig.hpp"
 #include "MiscConfig.hpp"
+#include "JsonStreamingParser2.h"
+#include "JsonPathCallback.h"
 
 #if CONFIG_WEB_ENABLED
 
@@ -2389,63 +2391,30 @@ static std::string overkiz_url_encode(const std::string &s)
     return r;
 }
 
-struct OverkizCtx {
-    char *body = nullptr;
-    size_t body_len = 0;
-    size_t body_cap = 0;
-    std::string session_cookie;
-    bool capture_cookie = false;
-    ~OverkizCtx() { free(body); }
-};
-
-static esp_err_t overkiz_http_event(esp_http_client_event_t *evt)
-{
-    auto *ctx = static_cast<OverkizCtx *>(evt->user_data);
-    if (evt->event_id == HTTP_EVENT_ON_HEADER && ctx->capture_cookie) {
-        if (strcasecmp(evt->header_key, "Set-Cookie") == 0) {
-            const char *p = strstr(evt->header_value, "JSESSIONID=");
-            if (p) {
-                p += 11;
-                const char *end = strchr(p, ';');
-                ctx->session_cookie = end ? std::string(p, end - p) : std::string(p);
-            }
-        }
-    } else if (evt->event_id == HTTP_EVENT_ON_DATA) {
-        if (ctx->body) {
-            size_t needed = ctx->body_len + (size_t)evt->data_len;
-            if (needed >= ctx->body_cap) {
-                size_t new_cap = std::max(ctx->body_cap * 2, needed + 1);
-                if (new_cap > 256 * 1024) {
-                    ESP_LOGW(TAG, "overkiz: response exceeds 256KB limit, truncating");
-                } else {
-                    char *nb = (char *)realloc(ctx->body, new_cap + 1);
-                    if (nb) { ctx->body = nb; ctx->body_cap = new_cap; }
-                    else { ESP_LOGW(TAG, "overkiz: realloc failed at %zu bytes (free=%zu)", new_cap, esp_get_free_heap_size()); }
-                }
-            }
-            if (ctx->body_len + (size_t)evt->data_len <= ctx->body_cap) {
-                memcpy(ctx->body + ctx->body_len, evt->data, evt->data_len);
-                ctx->body_len += evt->data_len;
-            }
-        }
-    }
-    return ESP_OK;
-}
-
 static std::string overkiz_login(const std::string &email, const std::string &password)
 {
     std::string post_body = "userId=" + overkiz_url_encode(email) +
                             "&userPassword=" + overkiz_url_encode(password);
-    OverkizCtx ctx;
-    ctx.capture_cookie = true;
+    std::string session_cookie;
 
     esp_http_client_config_t cfg = {};
     cfg.url            = "https://ha101-1.overkiz.com/enduser-mobile-web/enduserAPI/login";
     cfg.method         = HTTP_METHOD_POST;
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms     = 15000;
-    cfg.event_handler  = overkiz_http_event;
-    cfg.user_data      = &ctx;
+    cfg.user_data      = &session_cookie;
+    cfg.event_handler  = [](esp_http_client_event_t *evt) {
+        if (evt->event_id == HTTP_EVENT_ON_HEADER && strcasecmp(evt->header_key, "Set-Cookie") == 0) {
+            const char *p = strstr(evt->header_value, "JSESSIONID=");
+            if (p) {
+                p += 11;
+                const char *end = strchr(p, ';');
+                auto *session_cookie = static_cast<std::string *>(evt->user_data);
+                *session_cookie = end ? std::string(p, end - p) : std::string(p);
+            }
+        }
+        return ESP_OK;
+    };
 
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) return "";
@@ -2459,54 +2428,102 @@ static std::string overkiz_login(const std::string &email, const std::string &pa
         ESP_LOGW(TAG, "overkiz_login: err=%s status=%d", esp_err_to_name(err), status);
         return "";
     }
-    return ctx.session_cookie;
+    return session_cookie;
 }
 
-static char *overkiz_get(const std::string &cookie, const std::string &path)
+#define OVERKIZ_BUFFER_LENGTH 1024
+static esp_err_t overkiz_get(const std::string &cookie, const std::string &path, const std::function<esp_err_t(const char*, const int)> onreceive)
 {
     std::string url = "https://ha101-1.overkiz.com/enduser-mobile-web/enduserAPI/" + path;
     std::string cookie_hdr = "JSESSIONID=" + cookie;
-    OverkizCtx ctx;
-    ctx.capture_cookie = false;
-
-    // Start small; the event handler grows with realloc as data arrives.
-    // Keeping the initial allocation small leaves headroom for realloc while
-    // the TLS session is also holding memory.
-    ctx.body = (char *)malloc(4096 + 1);
-    if (!ctx.body) {
-        ESP_LOGW(TAG, "overkiz_get: OOM on initial body buffer (free=%zu)", esp_get_free_heap_size());
-        return nullptr;
-    }
-    ctx.body_cap = 4096;
+    ESP_LOGI(TAG, "overkiz_get: Using cookie: %s", cookie_hdr.c_str());
 
     esp_http_client_config_t cfg = {};
     cfg.url               = url.c_str();
     cfg.method            = HTTP_METHOD_GET;
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms        = 15000;
-    cfg.event_handler     = overkiz_http_event;
-    cfg.user_data         = &ctx;
 
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) return nullptr;
+    if (!client) return ESP_FAIL;
     esp_http_client_set_header(client, "Cookie", cookie_hdr.c_str());
-    esp_err_t err = esp_http_client_perform(client);
+    esp_err_t err = esp_http_client_open(client, 0);
+    esp_http_client_fetch_headers(client);
     int status    = esp_http_client_get_status_code(client);
+    if (status == 200) {
+        char buffer[OVERKIZ_BUFFER_LENGTH];
+        int total_read = 0;
+        while (true) {
+            int num_bytes = esp_http_client_read(client, buffer, OVERKIZ_BUFFER_LENGTH - 1);
+            if (num_bytes == ESP_ERR_HTTP_EAGAIN) continue;
+            if (num_bytes < 0) {
+                ESP_LOGE(TAG, "overkiz_get: Error reading data");
+                err = ESP_FAIL;
+                break;
+            }
+            if (num_bytes == 0) break;
+            buffer[num_bytes] = 0;
+            total_read += num_bytes;
+            if (onreceive(buffer, num_bytes) != ESP_OK) break;
+        }
+    }
+
+    esp_http_client_close(client);
     esp_http_client_cleanup(client);
     if (err != ESP_OK || status != 200) {
         ESP_LOGW(TAG, "overkiz_get %s: err=%s status=%d", path.c_str(), esp_err_to_name(err), status);
-        return nullptr;
+        return err;
     }
-    if (ctx.body_len == 0) return nullptr;
-    ctx.body[ctx.body_len] = '\0';
-    char *result = ctx.body;
-    ctx.body = nullptr; // transfer ownership — ctx destructor must not free it
-    return result;
+    return ESP_OK;
 }
 
-static char *overkiz_get_devices(const std::string &cookie)
+static esp_err_t overkiz_get_devices(const std::string &cookie, const std::function<void(std::string, std::string)> handle_device)
 {
-    return overkiz_get(cookie, "setup/devices");
+    const JsonPath devicePath = JsonDoc.withArray().withObject();
+    const JsonPath deviceDefinitionPath = devicePath.withObject("definition");
+    
+    std::string deviceLabel = "";
+    std::string deviceURL = "";
+    std::string deviceType = "";
+    JsonPathEventCB_t jsonParserHandler = [&](JsonPathEvent evt) {
+        switch(evt.type) {
+            case EVENT_VALUE:
+                if (evt.path == devicePath) {
+                    if (evt.key == "label" && evt.value->isString()) deviceLabel = evt.value->getString();
+                    else if (evt.key == "deviceURL" && evt.value->isString()) deviceURL = evt.value->getString();
+                }
+                if (evt.path == deviceDefinitionPath && evt.key == "type" && evt.value->isString()) {
+                    deviceType = evt.value->getString();
+                }
+                break;
+            case EVENT_END_OBJECT:
+                if (evt.path == devicePath) {
+                    if (deviceType == "ACTUATOR") {
+                        // Only for devices with type ACTUATOR we want to get the devices, this will exclude things like the Tahoma/ConnectivityKit box
+                        handle_device(deviceLabel, deviceURL);
+                    } else {
+                        ESP_LOGI(TAG, "overkiz_get_devices: device '%s' with url '%s', denied because type is '%s' instead of 'ACTUATOR'", deviceLabel.c_str(), deviceURL.c_str(), deviceType.c_str());
+                    }
+                    deviceLabel = deviceURL = deviceType = "";
+                }
+                break;
+        }
+    };
+    
+    JsonStreamingParser jparser(JsonPathHandler(jsonParserHandler));
+
+    return overkiz_get(cookie, "setup/devices", [&jparser](const char* buffer, const int len) {
+        // feed to parser
+        for (int i=0; i<len; i++) {
+            jparser.parse(buffer[i]);
+
+            if (jparser.hasParseError()) {
+                ESP_LOGE(TAG, "overkiz_get_devices: Error during parsing: %s", jparser.getErrorMessage());
+                return ESP_FAIL;
+            }
+        }
+        return ESP_OK;
+    });
 }
 
 // POST /api/somfy/import
@@ -2533,50 +2550,45 @@ static esp_err_t api_somfy_import_post(httpd_req_t *req)
         return ESP_OK;
     }
 
-    char *json_buf = overkiz_get_devices(cookie);
-    if (!json_buf) {
-        send_result(req, false, "Failed to fetch device list from Somfy cloud");
-        return ESP_OK;
-    }
-
-    cJSON *src = cJSON_Parse(json_buf);
-    free(json_buf);
-    if (!cJSON_IsArray(src)) {
-        cJSON_Delete(src);
-        send_result(req, false, "Unexpected response format from Somfy cloud");
-        return ESP_OK;
-    }
-
     std::map<std::string, bool> known;
     s_manager->mIoDevicesMutex.lock();
     for (const auto &kv : s_manager->mIoDevices) known[kv.first] = true;
     s_manager->mIoDevicesMutex.unlock();
 
     cJSON *result = cJSON_CreateArray();
-    cJSON *item = nullptr;
-    cJSON_ArrayForEach(item, src) {
-        cJSON *jUrl   = cJSON_GetObjectItem(item, "deviceURL");
-        cJSON *jLabel = cJSON_GetObjectItem(item, "label");
-        if (!cJSON_IsString(jUrl)) continue;
+    auto err = overkiz_get_devices(cookie, [&result, &known](std::string label, std::string url) {
+        if (url.compare(0, 5, "io://") != 0) { 
+            ESP_LOGI(TAG, "overkiz_get_devices: device '%s' with url denied: '%s'", label.c_str(), url.c_str()); 
+            return; 
+        }
 
-        const char *url = jUrl->valuestring;
-        if (strncmp(url, "io://", 5) != 0) continue;
+        auto lastSlash = url.find_last_of('/');
+        auto lastPart = url.substr(lastSlash+1);
+        if (lastPart == "") { ESP_LOGI(TAG, "overkiz_get_devices: device '%s' with url denied: '%s'", label.c_str(), url.c_str()); return; }
 
-        const char *slash = strrchr(url, '/');
-        if (!slash || slash[1] == '\0') continue;
-        unsigned long decimal_id = strtoul(slash + 1, nullptr, 10);
-        if (decimal_id == 0 || decimal_id > 0xFFFFFF) continue;
+        char *end = nullptr;
+        unsigned long decimal_id = strtoul(lastPart.c_str(), &end, 10);
+        if (*end != '\0' || decimal_id == 0 || decimal_id > 0xFFFFFF ) { 
+            ESP_LOGI(TAG, "overkiz_get_devices: device '%s' with url '%s' denied because of invalid decimal value", label.c_str(), url.c_str()); 
+            return; 
+        }
 
         char hex_id[7];
         snprintf(hex_id, sizeof(hex_id), "%06lX", decimal_id);
 
         cJSON *entry = cJSON_CreateObject();
         cJSON_AddStringToObject(entry, "id",   hex_id);
-        cJSON_AddStringToObject(entry, "name", cJSON_IsString(jLabel) ? jLabel->valuestring : hex_id);
+        cJSON_AddStringToObject(entry, "name", label.empty() ? hex_id : label.c_str());
         cJSON_AddBoolToObject(entry,  "already_added", known.count(hex_id) > 0);
         cJSON_AddItemToArray(result, entry);
+    });
+
+    if (err != ESP_OK) {
+        cJSON_Delete(result);
+        send_result(req, false, "Failed to fetch devices from Overkiz");
+        return err;
     }
-    cJSON_Delete(src);
+
     send_json(req, result);
     return ESP_OK;
 }
