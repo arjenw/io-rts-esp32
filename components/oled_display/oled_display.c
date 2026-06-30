@@ -235,6 +235,19 @@ static void oled_print_line(uint8_t row, const char *text)
     send_data(line, OLED_COLS);
 }
 
+/* ---- Draw a solid 1-pixel horizontal line across the full width at a given page and row ---- */
+
+static void oled_draw_hline(uint8_t row, uint8_t pixel_row)
+{
+    if (row >= OLED_PAGES || pixel_row > 7 || s_dev == NULL) return;
+    uint8_t line[OLED_COLS];
+    memset(line, 1 << pixel_row, sizeof(line));
+    send_cmd(0xB0 | row);
+    send_cmd(0x00);
+    send_cmd(0x10);
+    send_data(line, OLED_COLS);
+}
+
 /* ---- RSSI bar graph (3 vertical bars, right-aligned at cols 120-127) ---- */
 
 static void oled_draw_rssi_bars(uint8_t line[OLED_COLS], int rssi)
@@ -442,8 +455,8 @@ esp_err_t oled_init(void)
     memset(s_dev_lines, 0, sizeof(s_dev_lines));
     s_next_slot = 0;
     oled_print_line(0, "io-homecontrol");
-    oled_print_line(1, "--------------------");
-    oled_print_line(6, "--------------------");
+    oled_draw_hline(1, 3);
+    oled_draw_hline(6, 3);
 
     /* Create queue and task — all I2C access goes through the task from here */
     s_queue = xQueueCreateStatic(OLED_QUEUE_DEPTH, sizeof(oled_evt_t),
