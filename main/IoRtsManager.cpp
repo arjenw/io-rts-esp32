@@ -608,4 +608,9 @@ namespace IoRts
             sMqttHelper = nullptr;
         }
     }
+
+    extern "C" bool oled_mqtt_connected(void)
+    {
+        return sMqttHelper != nullptr && sMqttHelper->IsMqttConnected();
+    }
 }
