@@ -158,6 +158,14 @@ static const uint8_t icon_rx[OLED_CHAR_W] = {
     0x7C, 0x40, 0x50, 0x48, 0x44, 0x02
 };
 
+/* MQTT connection icons (8x8, column-oriented, bit 0 = top) */
+static const uint8_t icon_mqtt_on[8] = {
+    0x1E, 0x33, 0x21, 0x61, 0xE1, 0xB3, 0x9E, 0x00
+};
+static const uint8_t icon_mqtt_off[8] = {
+    0x46, 0x21, 0x11, 0x09, 0x24, 0x62, 0xA1, 0x98
+};
+
 /* ---- Device line state (combines TX+RX per device) ---- */
 
 #define MAX_DEV_LINES 4
@@ -203,6 +211,10 @@ static int s_next_slot = 0;
 static TickType_t s_status_time = 0;
 static char s_version_str[9] = "v0.00.00";
 
+static bool s_mqtt_connected = false;
+static int  s_net_state = 0;
+
+extern bool oled_mqtt_connected(void);
 
 /* ---- Low-level I2C helpers (called only from oled_task or init) ---- */
 
@@ -334,7 +346,7 @@ static void oled_draw_rssi_bars(uint8_t line[OLED_COLS], int rssi)
 /* Sentinel passed to oled_draw_header to indicate "no credentials configured" */
 #define RSSI_NO_CREDS 127
 
-static void oled_draw_header(int state)
+static void oled_draw_header(void)
 {
     uint8_t line[OLED_COLS];
     memset(line, 0, sizeof(line));
@@ -358,13 +370,15 @@ static void oled_draw_header(int state)
         memcpy(&line[pos + i * OLED_CHAR_W], font6x8[c - 0x20], OLED_CHAR_W);
     }
 
+    memcpy(&line[107], s_mqtt_connected ? icon_mqtt_on : icon_mqtt_off, 8);
+
 #ifdef CONFIG_CONNECTIVITY_CHOICE_ETH
-    memcpy(&line[OLED_COLS - 8], state ? icon_lan_on : icon_lan_off, 8);
+    memcpy(&line[OLED_COLS - 8], s_net_state ? icon_lan_on : icon_lan_off, 8);
 #else
-    if (state == RSSI_NO_CREDS)
+    if (s_net_state == RSSI_NO_CREDS)
         memcpy(&line[OLED_COLS - 8], icon_lan_off, 8);
     else
-        oled_draw_rssi_bars(line, state);
+        oled_draw_rssi_bars(line, s_net_state);
 #endif
 
     send_cmd(0xB0 | 0);
@@ -531,13 +545,16 @@ static void oled_task(void *arg)
 
         if ((now - last_net_update) >= pdMS_TO_TICKS(10000)) {
             last_net_update = now;
+            s_mqtt_connected = oled_mqtt_connected();
 #ifdef CONFIG_CONNECTIVITY_CHOICE_ETH
             esp_netif_t *eth = esp_netif_get_handle_from_ifkey("eth");
             if (eth) {
                 esp_netif_ip_info_t ip;
-                oled_draw_header(esp_netif_get_ip_info(eth, &ip) == ESP_OK);
+                s_net_state = (esp_netif_get_ip_info(eth, &ip) == ESP_OK);
+                oled_draw_header();
             } else {
-                oled_draw_header(0);
+                s_net_state = 0;
+                oled_draw_header();
             }
 #else
             wifi_ap_record_t ap;
@@ -551,7 +568,8 @@ static void oled_task(void *arg)
                 else
                     level = RSSI_NO_CREDS;
             }
-            oled_draw_header(level);
+            s_net_state = level;
+            oled_draw_header();
 #endif
         }
     }
@@ -623,7 +641,9 @@ esp_err_t oled_init(void)
         oled_print_line(p, NULL);
     memset(s_dev_lines, 0, sizeof(s_dev_lines));
     s_next_slot = 0;
-    oled_draw_header(0);
+    s_net_state = 0;
+    s_mqtt_connected = false;
+    oled_draw_header();
     oled_draw_hline(1, 3);
     oled_draw_hline(6, 3);
     oled_init_version();
