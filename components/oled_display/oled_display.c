@@ -15,6 +15,7 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_app_desc.h"
+#include <stdlib.h>
 
 static const char *TAG = "oled";
 
@@ -214,6 +215,17 @@ static char s_version_str[9] = "v0.00.00";
 static bool s_mqtt_connected = false;
 static int  s_net_state = 0;
 
+/* Condensed header width: logo(12) + gap(4) + "control"(42) + gap(15) + MQTT(8) + gap(5) + network(8) = 94 */
+#define CONDENSED_W 94
+
+/* Screensaver state */
+static bool       s_saver_active   = false;
+static int        s_saver_x        = 0;
+static int        s_saver_y        = 0;
+static TickType_t s_idle_since     = 0;
+static TickType_t s_saver_last_move = 0;
+static char       s_status_msg[22] = "";
+
 extern bool oled_mqtt_connected(void);
 
 /* ---- Low-level I2C helpers (called only from oled_task or init) ---- */
@@ -387,6 +399,76 @@ static void oled_draw_header(void)
     send_data(line, OLED_COLS);
 }
 
+/* Forward declaration needed by oled_redraw_all */
+static void oled_render_dev_line(int slot);
+
+/* ---- Condensed header for screensaver: logo + "control" + MQTT + network at x offset ---- */
+
+static void oled_draw_condensed_header(int x, int page)
+{
+    uint8_t line[OLED_COLS];
+    memset(line, 0, sizeof(line));
+    int col = x;
+
+    static const uint8_t logo_rows[][2] = {
+        {0xff, 0xf0}, {0x88, 0x10}, {0x88, 0x10}, {0x88, 0x10},
+        {0x88, 0x10}, {0x88, 0x10}, {0x8f, 0xf0}
+    };
+    for (int c = 0; c < 12; c++) {
+        uint8_t byte = 0;
+        for (int row = 0; row < 7; row++) {
+            uint16_t r = ((uint16_t)logo_rows[row][0] << 8) | logo_rows[row][1];
+            if (r & (0x8000 >> c)) byte |= (1 << row);
+        }
+        line[col + c] = byte << 1;
+    }
+    col += 16;
+
+    const char *title = "control";
+    for (size_t i = 0; title[i]; i++) {
+        uint8_t c = (uint8_t)title[i];
+        if (c < 0x20 || c > 0x7F) c = 0x20;
+        memcpy(&line[col + i * OLED_CHAR_W], font6x8[c - 0x20], OLED_CHAR_W);
+    }
+    col += 7 * OLED_CHAR_W + 15;
+
+    memcpy(&line[col], s_mqtt_connected ? icon_mqtt_on : icon_mqtt_off, 8);
+    col += 13;
+
+#ifdef CONFIG_CONNECTIVITY_CHOICE_ETH
+    memcpy(&line[col], s_net_state ? icon_lan_on : icon_lan_off, 8);
+#else
+    if (s_net_state == RSSI_NO_CREDS) {
+        memcpy(&line[col], icon_lan_off, 8);
+    } else {
+        int level;
+        if (s_net_state == 0)                level = 0;
+        else if (s_net_state >= -65)         level = 3;
+        else if (s_net_state >= -80)         level = 2;
+        else if (s_net_state >= -95)         level = 1;
+        else                                  level = 0;
+        memcpy(&line[col], RSSI_BARS[level], 8);
+    }
+#endif
+
+    send_cmd(0xB0 | page);
+    send_cmd(0x00);
+    send_cmd(0x10);
+    send_data(line, OLED_COLS);
+}
+
+/* ---- Restore full display after screensaver ---- */
+
+static void oled_redraw_all(void)
+{
+    oled_draw_header();
+    oled_draw_hline(1, 3);
+    oled_draw_hline(6, 3);
+    for (int i = 0; i < MAX_DEV_LINES; i++)
+        oled_render_dev_line(i);
+    oled_render_status_line(s_status_time ? s_status_msg : "");
+}
+
 /* ---- Per-device line helpers ---- */
 
 static int find_or_alloc_line(const char *device_id)
@@ -471,6 +553,193 @@ static void oled_render_dev_line(int slot)
     send_data(line, OLED_COLS);
 }
 
+/* ---- Event processing (called from oled_task) ---- */
+
+static void process_event(const oled_evt_t *evt)
+{
+    if (s_saver_active) {
+        s_saver_active = false;
+        oled_redraw_all();
+    }
+    s_idle_since = 0;
+
+    switch (evt->type) {
+    case OLED_EVT_TX: {
+        int slot = find_or_alloc_line(evt->device_id);
+        oled_dev_line_t *dev = &s_dev_lines[slot];
+        if (!dev->has_tx && !dev->has_rx) dev->rx_first = false;
+        memcpy(dev->device_id, evt->device_id, sizeof(dev->device_id));
+        const char *cmd = evt->cmd_str;
+        if (cmd[0] == '0' && (cmd[1] == 'x' || cmd[1] == 'X')) cmd += 2;
+        snprintf(dev->tx_cmd, sizeof(dev->tx_cmd), "%.4s", cmd);
+        dev->has_tx = true;
+        dev->last_update = xTaskGetTickCount();
+        oled_render_dev_line(slot);
+        break;
+    }
+    case OLED_EVT_RX: {
+        int slot = find_or_alloc_line(evt->device_id);
+        oled_dev_line_t *dev = &s_dev_lines[slot];
+        if (!dev->has_tx && !dev->has_rx) dev->rx_first = true;
+        memcpy(dev->device_id, evt->device_id, sizeof(dev->device_id));
+        snprintf(dev->rx_cmd, sizeof(dev->rx_cmd), "%.2s", evt->cmd_str);
+        dev->rssi  = evt->rssi;
+        dev->has_rx = true;
+        dev->last_update = xTaskGetTickCount();
+        oled_render_dev_line(slot);
+        break;
+    }
+    case OLED_EVT_STATUS:
+        strncpy(s_status_msg, evt->cmd_str, sizeof(s_status_msg) - 1);
+        s_status_msg[sizeof(s_status_msg) - 1] = '\0';
+        oled_render_status_line(evt->cmd_str);
+        s_status_time = evt->cmd_str[0] ? xTaskGetTickCount() : 0;
+        break;
+    }
+}
+
+/* ---- Stale-content helpers ---- */
+
+static void clear_stale_status(TickType_t now)
+{
+    if (s_status_time && (now - s_status_time) >= pdMS_TO_TICKS(4000)) {
+        s_status_time = 0;
+        oled_render_status_line("");
+    }
+}
+
+static void clear_stale_dev_lines(TickType_t now)
+{
+    TickType_t timeout = pdMS_TO_TICKS(30000);
+    for (int i = 0; i < MAX_DEV_LINES; i++) {
+        if (s_dev_lines[i].device_id[0] &&
+            (now - s_dev_lines[i].last_update) >= timeout)
+            memset(&s_dev_lines[i], 0, sizeof(oled_dev_line_t));
+    }
+}
+
+/* ---- Compact the device-lines array (remove gaps) and re-render ---- */
+
+static void compact_dev_lines(void)
+{
+    int kept = 0;
+    for (int i = 0; i < MAX_DEV_LINES; i++) {
+        if (s_dev_lines[i].device_id[0]) {
+            if (i != kept) {
+                s_dev_lines[kept] = s_dev_lines[i];
+                memset(&s_dev_lines[i], 0, sizeof(oled_dev_line_t));
+            }
+            kept++;
+        }
+    }
+    s_next_slot = (kept < MAX_DEV_LINES) ? kept : 0;
+    for (int i = 0; i < MAX_DEV_LINES; i++)
+        oled_render_dev_line(i);
+}
+
+/* ---- Screensaver helpers ---- */
+
+static bool has_active_content(void)
+{
+    for (int i = 0; i < MAX_DEV_LINES; i++) {
+        if (s_dev_lines[i].device_id[0]) return true;
+    }
+    return (s_status_time != 0);
+}
+
+static void exit_screensaver(void)
+{
+    s_idle_since = 0;
+    if (s_saver_active) {
+        s_saver_active = false;
+        oled_redraw_all();
+    }
+}
+
+static void activate_screensaver(TickType_t now)
+{
+    s_saver_active = true;
+    s_saver_x = 0;
+    s_saver_y = 0;
+    s_saver_last_move = now;
+    for (int p = 0; p < OLED_PAGES; p++)
+        oled_print_line(p, NULL);
+    oled_draw_condensed_header(s_saver_x, s_saver_y);
+}
+
+static void move_screensaver(TickType_t now)
+{
+    oled_print_line(s_saver_y, NULL);
+    s_saver_last_move = now;
+    int max_x = OLED_COLS - CONDENSED_W;
+    if (max_x > 0)
+        s_saver_x = rand() % (max_x + 1);
+    s_saver_y = rand() % OLED_PAGES;
+    oled_draw_condensed_header(s_saver_x, s_saver_y);
+}
+
+static void update_screensaver(TickType_t now)
+{
+    if (!s_saver_active) {
+        if (s_idle_since == 0) {
+            s_idle_since = now;
+        } else if ((now - s_idle_since) >= pdMS_TO_TICKS(10000)) {
+            activate_screensaver(now);
+        }
+    } else if ((now - s_saver_last_move) >= pdMS_TO_TICKS(10000)) {
+        move_screensaver(now);
+    } else {
+        oled_draw_condensed_header(s_saver_x, s_saver_y);
+    }
+}
+
+/* ---- Periodic 2-second cleanup: stale lines, screensaver ---- */
+
+static void cleanup_oled(TickType_t now)
+{
+    clear_stale_status(now);
+    clear_stale_dev_lines(now);
+    compact_dev_lines();
+
+    if (has_active_content()) {
+        exit_screensaver();
+    } else {
+        update_screensaver(now);
+    }
+}
+
+/* ---- Periodic 10-second network status refresh ---- */
+
+static void update_network(void)
+{
+    s_mqtt_connected = oled_mqtt_connected();
+    bool draw_header = !s_saver_active;
+#ifdef CONFIG_CONNECTIVITY_CHOICE_ETH
+    esp_netif_t *eth = esp_netif_get_handle_from_ifkey("eth");
+    if (eth) {
+        esp_netif_ip_info_t ip;
+        s_net_state = (esp_netif_get_ip_info(eth, &ip) == ESP_OK);
+    } else {
+        s_net_state = 0;
+    }
+    if (draw_header) oled_draw_header();
+#else
+    wifi_ap_record_t ap;
+    int level;
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        level = ap.rssi;
+    } else {
+        wifi_config_t cfg;
+        if (esp_wifi_get_config(WIFI_IF_STA, &cfg) == ESP_OK && cfg.sta.ssid[0])
+            level = 0;
+        else
+            level = RSSI_NO_CREDS;
+    }
+    s_net_state = level;
+    if (draw_header) oled_draw_header();
+#endif
+}
+
 /* ---- OLED task: sole owner of I2C after init ---- */
 
 static void oled_task(void *arg)
@@ -481,96 +750,19 @@ static void oled_task(void *arg)
     TickType_t last_net_update = 0;
     for (;;) {
         if (xQueueReceive(s_queue, &evt, pdMS_TO_TICKS(2000))) {
-            switch (evt.type) {
-            case OLED_EVT_TX: {
-                int slot = find_or_alloc_line(evt.device_id);
-                oled_dev_line_t *dev = &s_dev_lines[slot];
-                if (!dev->has_tx && !dev->has_rx) dev->rx_first = false;
-                memcpy(dev->device_id, evt.device_id, sizeof(dev->device_id));
-                const char *cmd = evt.cmd_str;
-                if (cmd[0] == '0' && (cmd[1] == 'x' || cmd[1] == 'X')) cmd += 2;
-                snprintf(dev->tx_cmd, sizeof(dev->tx_cmd), "%.4s", cmd);
-                dev->has_tx = true;
-                dev->last_update = xTaskGetTickCount();
-                oled_render_dev_line(slot);
-                break;
-            }
-            case OLED_EVT_RX: {
-                int slot = find_or_alloc_line(evt.device_id);
-                oled_dev_line_t *dev = &s_dev_lines[slot];
-                if (!dev->has_tx && !dev->has_rx) dev->rx_first = true;
-                memcpy(dev->device_id, evt.device_id, sizeof(dev->device_id));
-                snprintf(dev->rx_cmd, sizeof(dev->rx_cmd), "%.2s", evt.cmd_str);
-                dev->rssi  = evt.rssi;
-                dev->has_rx = true;
-                dev->last_update = xTaskGetTickCount();
-                oled_render_dev_line(slot);
-                break;
-            }
-            case OLED_EVT_STATUS:
-                oled_render_status_line(evt.cmd_str);
-                s_status_time = evt.cmd_str[0] ? xTaskGetTickCount() : 0;
-                break;
-            }
+            process_event(&evt);
         }
 
         TickType_t now = xTaskGetTickCount();
 
         if ((now - last_cleanup) >= pdMS_TO_TICKS(2000)) {
             last_cleanup = now;
-            if (s_status_time && (now - s_status_time) >= pdMS_TO_TICKS(4000)) {
-                s_status_time = 0;
-                oled_render_status_line("");
-            }
-            TickType_t timeout = pdMS_TO_TICKS(30000);
-            for (int i = 0; i < MAX_DEV_LINES; i++) {
-                if (s_dev_lines[i].device_id[0] &&
-                    (now - s_dev_lines[i].last_update) >= timeout)
-                    memset(&s_dev_lines[i], 0, sizeof(oled_dev_line_t));
-            }
-            int kept = 0;
-            for (int i = 0; i < MAX_DEV_LINES; i++) {
-                if (s_dev_lines[i].device_id[0]) {
-                    if (i != kept) {
-                        s_dev_lines[kept] = s_dev_lines[i];
-                        memset(&s_dev_lines[i], 0, sizeof(oled_dev_line_t));
-                    }
-                    kept++;
-                }
-            }
-            s_next_slot = (kept < MAX_DEV_LINES) ? kept : 0;
-            for (int i = 0; i < MAX_DEV_LINES; i++)
-                oled_render_dev_line(i);
+            cleanup_oled(now);
         }
 
         if ((now - last_net_update) >= pdMS_TO_TICKS(10000)) {
             last_net_update = now;
-            s_mqtt_connected = oled_mqtt_connected();
-#ifdef CONFIG_CONNECTIVITY_CHOICE_ETH
-            esp_netif_t *eth = esp_netif_get_handle_from_ifkey("eth");
-            if (eth) {
-                esp_netif_ip_info_t ip;
-                s_net_state = (esp_netif_get_ip_info(eth, &ip) == ESP_OK);
-                oled_draw_header();
-            } else {
-                s_net_state = 0;
-                oled_draw_header();
-            }
-#else
-            wifi_ap_record_t ap;
-            int level;
-            if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
-                level = ap.rssi;
-            } else {
-                wifi_config_t cfg;
-                if (esp_wifi_get_config(WIFI_IF_STA, &cfg) == ESP_OK && cfg.sta.ssid[0])
-                    level = 0;
-                else
-                    level = RSSI_NO_CREDS;
-            }
-            s_net_state = level;
-            oled_draw_header();
-#endif
+            update_network();
         }
     }
 }
@@ -643,6 +835,13 @@ esp_err_t oled_init(void)
     s_next_slot = 0;
     s_net_state = 0;
     s_mqtt_connected = false;
+    s_saver_active = false;
+    s_saver_x = 0;
+    s_saver_y = 0;
+    s_idle_since = 0;
+    s_saver_last_move = 0;
+    s_status_msg[0] = '\0';
+    srand((unsigned)xTaskGetTickCount());
     oled_draw_header();
     oled_draw_hline(1, 3);
     oled_draw_hline(6, 3);
