@@ -2436,8 +2436,6 @@ static esp_err_t overkiz_get(const std::string &cookie, const std::string &path,
 {
     std::string url = "https://ha101-1.overkiz.com/enduser-mobile-web/enduserAPI/" + path;
     std::string cookie_hdr = "JSESSIONID=" + cookie;
-    ESP_LOGI(TAG, "overkiz_get: Using cookie: %s", cookie_hdr.c_str());
-
     esp_http_client_config_t cfg = {};
     cfg.url               = url.c_str();
     cfg.method            = HTTP_METHOD_GET;
@@ -2448,11 +2446,11 @@ static esp_err_t overkiz_get(const std::string &cookie, const std::string &path,
     if (!client) return ESP_FAIL;
     esp_http_client_set_header(client, "Cookie", cookie_hdr.c_str());
     esp_err_t err = esp_http_client_open(client, 0);
-    esp_http_client_fetch_headers(client);
-    int status    = esp_http_client_get_status_code(client);
-    if (status == 200) {
+    if (err == ESP_OK && esp_http_client_fetch_headers(client) < 0)
+        err = ESP_FAIL;
+    int status = esp_http_client_get_status_code(client);
+    if (err == ESP_OK && status == 200) {
         char buffer[OVERKIZ_BUFFER_LENGTH];
-        int total_read = 0;
         while (true) {
             int num_bytes = esp_http_client_read(client, buffer, OVERKIZ_BUFFER_LENGTH - 1);
             if (num_bytes == ESP_ERR_HTTP_EAGAIN) continue;
@@ -2463,8 +2461,7 @@ static esp_err_t overkiz_get(const std::string &cookie, const std::string &path,
             }
             if (num_bytes == 0) break;
             buffer[num_bytes] = 0;
-            total_read += num_bytes;
-            if (onreceive(buffer, num_bytes) != ESP_OK) break;
+            if (onreceive(buffer, num_bytes) != ESP_OK) { err = ESP_FAIL; break; }
         }
     }
 
@@ -2472,7 +2469,7 @@ static esp_err_t overkiz_get(const std::string &cookie, const std::string &path,
     esp_http_client_cleanup(client);
     if (err != ESP_OK || status != 200) {
         ESP_LOGW(TAG, "overkiz_get %s: err=%s status=%d", path.c_str(), esp_err_to_name(err), status);
-        return err;
+        return err != ESP_OK ? err : ESP_FAIL;
     }
     return ESP_OK;
 }
@@ -2586,7 +2583,7 @@ static esp_err_t api_somfy_import_post(httpd_req_t *req)
     if (err != ESP_OK) {
         cJSON_Delete(result);
         send_result(req, false, "Failed to fetch devices from Overkiz");
-        return err;
+        return ESP_OK;
     }
 
     send_json(req, result);

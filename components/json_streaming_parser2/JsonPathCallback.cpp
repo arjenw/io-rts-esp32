@@ -1,6 +1,6 @@
 #include "JsonPathCallback.h"
 
-JsonParserCB_t JsonPathHandler(JsonPathEventCB_t& cb) {
+JsonParserCB_t JsonPathHandler(JsonPathEventCB_t cb) {
     struct Ctx {
         std::shared_ptr<JsonPath> current;
         std::vector<std::optional<int>> arrayIndexStack;
@@ -19,7 +19,7 @@ JsonParserCB_t JsonPathHandler(JsonPathEventCB_t& cb) {
     auto ctx = std::make_shared<Ctx>();
     ctx->current = std::make_shared<JsonPath>(JsonDoc);
     ctx->arrayIndexStack.push_back({});
-    return [&cb, ctx](JsonParseEvent evt) mutable {
+    return [cb = std::move(cb), ctx](JsonParseEvent evt) mutable {
         switch(evt.type) {
             case EVENT_START_DOCUMENT: cb({ evt.type, *ctx->current, {}, {}, {} }); break;
             case EVENT_END_DOCUMENT: cb({ evt.type, *ctx->current, {}, {}, {} }); break;

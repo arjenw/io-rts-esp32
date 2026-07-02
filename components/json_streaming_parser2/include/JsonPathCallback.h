@@ -28,7 +28,7 @@ struct JsonPath {
     }
 
     bool startsWith(const JsonPath& other) const {
-        return *this == other || *parent == other;
+        return *this == other || (parent != nullptr && *parent == other);
     }
 
     bool endsWith(const JsonPath& other) const {
@@ -112,6 +112,6 @@ struct JsonPathEvent {
 
 typedef std::function<void(JsonPathEvent)> JsonPathEventCB_t;
 
-JsonParserCB_t JsonPathHandler(JsonPathEventCB_t& cb);
+JsonParserCB_t JsonPathHandler(JsonPathEventCB_t cb);
 
 #endif // JSON_PATH_CALLBACK_H
