@@ -401,7 +401,7 @@ namespace iohome
 
     // Create IoDevice status queue and task
     sIoDeviceStatusQueue = xQueueCreate(20, sizeof(IoDevice));
-    xTaskCreate(process_iodevicestatus_task, "process_iodevicestatus_task", 4096, NULL, DEVICE_STATUS_CALLBACK_PRIORITY, NULL);
+    xTaskCreate(process_iodevicestatus_task, "process_iodevicestatus_task", 8192, NULL, DEVICE_STATUS_CALLBACK_PRIORITY, NULL);
 
     // Initialize mutex
     sMutex = xSemaphoreCreateMutexStatic(&sMutexBuffer);
