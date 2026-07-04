@@ -2130,38 +2130,28 @@ namespace iohome
     }
     // Listen for challenge response
     RxFrameQueueItem rxItem;
-    if (xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS))
+    RxFrameQueueItem stash[RX_STASH_MAX];
+    int stash_count = 0;
+    if (!ReceiveMatchingFrame(request.src_node, mOwnNodeId, CMD_CHALLENGE_RESPONSE,
+                              RECEIVED_IO_TREATMENT_WAIT_TICKS,
+                              rxItem, stash, stash_count))
     {
-      // We have a response, check it
-      if (memcmp(rxItem.frame.src_node, request.src_node, NODE_ID_SIZE) != 0 // same device?
-          || memcmp(rxItem.frame.dest_node, mOwnNodeId, NODE_ID_SIZE) != 0)  // for us?
-      {
-        IO_LOGE("AuthenticateReceivedRequest: received a response not for current exchange!");
-        return false;
-      }
-      if (rxItem.frame.command_id != CMD_CHALLENGE_RESPONSE)
-      {
-        IO_LOGE("AuthenticateReceivedRequest: received a response that is not challenge response!");
-        return false;
-      }
-      // Check challenge response...
-      uint8_t data[FRAME_MAX_SIZE];
-      data[0] = request.command_id;
-      memcpy(data + 1, request.data, request.data_len);
-      if (crypto::verify_hmac(data, request.data_len + 1, rxItem.frame.data, challengeFrame.data, mSystemKey))
-      {
-        // IO_LOGI("AuthenticateReceivedRequest success!");
-        return true;
-      }
-      else
-      {
-        IO_LOGE("ProcessReceivedFrameTask - Error: HMAC verification failed!");
-        return false;
-      }
+      FlushStash(stash, stash_count);
+      IO_LOGW("AuthenticateReceivedRequest: no challenge response received");
+      return false;
+    }
+    FlushStash(stash, stash_count);
+    // Check challenge response...
+    uint8_t data[FRAME_MAX_SIZE];
+    data[0] = request.command_id;
+    memcpy(data + 1, request.data, request.data_len);
+    if (crypto::verify_hmac(data, request.data_len + 1, rxItem.frame.data, challengeFrame.data, mSystemKey))
+    {
+      return true;
     }
     else
     {
-      IO_LOGE("AuthenticateReceivedRequest: didn't receive response!");
+      IO_LOGE("AuthenticateReceivedRequest: HMAC verification failed!");
       return false;
     }
   }
