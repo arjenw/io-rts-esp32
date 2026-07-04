@@ -57,6 +57,11 @@ constexpr int RX_STASH_MAX = 4; // max frames to stash during a single exchange
   {                                                                  \
     IoLog(ESP_LOG_ERROR, std::format(a __VA_OPT__(, ) __VA_ARGS__)); \
   } while (0)
+#define IO_LOGW(a, ...)                                              \
+  do                                                                 \
+  {                                                                  \
+    IoLog(ESP_LOG_WARN, std::format(a __VA_OPT__(, ) __VA_ARGS__));  \
+  } while (0)
 #define IO_LOGI(a, ...)                                             \
   do                                                                \
   {                                                                 \
@@ -2041,28 +2046,26 @@ namespace iohome
   {
     uint8_t tries = 3;
     bool setStartFlagToAuthentResponse = false;
+    RxFrameQueueItem stash[RX_STASH_MAX];
+    int stash_count = 0;
+
     while (tries > 0)
     {
       if (tries < 3)
         vTaskDelay(pdMS_TO_TICKS(TIME_BETWEEN_RETRY_MS));
       tries--;
 
-      // IO_LOGI("SendAndReceive");
       if (TransmitFrame(request, frequency, is_start(request) ? LONG_PREAMBLE_LENGTH : SHORT_PREAMBLE_LENGTH))
       {
         RxFrameQueueItem rxItem;
-        if (xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS))
+        if (ReceiveMatchingFrame(request.dest_node, request.src_node, -1,
+                                 RECEIVED_IO_TREATMENT_WAIT_TICKS,
+                                 rxItem, stash, stash_count))
         {
-          // We have a response, check it
-          if (memcmp(rxItem.frame.src_node, request.dest_node, NODE_ID_SIZE) != 0     // same device?
-              || memcmp(rxItem.frame.dest_node, request.src_node, NODE_ID_SIZE) != 0) // for us?
-          {
-            IO_LOGE("SendAndReceive: received a response not for current exchange!");
-            continue;
-          }
           if (rxItem.frame.command_id != CMD_CHALLENGE_REQUEST)
           {
             memcpy(&response, &rxItem.frame, sizeof(response));
+            FlushStash(stash, stash_count);
             return true; // no need for authentication!
           }
 
@@ -2071,41 +2074,37 @@ namespace iohome
           if (create_challenge_response(challengeResponse, request.dest_node, mOwnNodeId, rxItem.frame.data, request, mSystemKey))
           {
             if (setStartFlagToAuthentResponse)
-              challengeResponse.ctrl_byte_0 |= CTRL0_START; // Set Start bit
+              challengeResponse.ctrl_byte_0 |= CTRL0_START;
             if (TransmitFrame(challengeResponse, frequency, SHORT_PREAMBLE_LENGTH))
             {
               // Now wait for final response
-              if (xQueueReceive(sRxIoQueue, &rxItem, RECEIVED_IO_TREATMENT_WAIT_TICKS))
+              if (ReceiveMatchingFrame(request.dest_node, request.src_node, -1,
+                                       RECEIVED_IO_TREATMENT_WAIT_TICKS,
+                                       rxItem, stash, stash_count))
               {
-                // We have a response, check it
-                if (memcmp(rxItem.frame.src_node, request.dest_node, NODE_ID_SIZE) == 0     // same device?
-                    && memcmp(rxItem.frame.dest_node, request.src_node, NODE_ID_SIZE) == 0) // for us?
-                {
-                  memcpy(&response, &rxItem.frame, sizeof(response));
-                  return true;
-                }
-                else
-                  IO_LOGE("SendAndReceive: received a final response not for current exchange!");
+                memcpy(&response, &rxItem.frame, sizeof(response));
+                FlushStash(stash, stash_count);
+                return true;
               }
               setStartFlagToAuthentResponse = true;
-              IO_LOGE("SendAndReceive: didn't receive final response!");
+              IO_LOGW("SendAndReceive: didn't receive final response!");
               continue;
             }
             else
             {
-              IO_LOGE("ProcessReceivedFrameTask - Error: Failed to send challenge request");
+              IO_LOGE("SendAndReceive: failed to send challenge response");
               continue;
             }
           }
           else
           {
-            IO_LOGE("ProcessReceivedFrameTask - Error: Failed to create challenge request");
+            IO_LOGE("SendAndReceive: failed to create challenge response");
             continue;
           }
         }
         else
         {
-          IO_LOGE("SendAndReceive: didn't receive response!");
+          IO_LOGW("SendAndReceive: didn't receive response!");
           continue;
         }
       }
@@ -2115,6 +2114,7 @@ namespace iohome
         continue;
       }
     }
+    FlushStash(stash, stash_count);
     return false;
   }
 
