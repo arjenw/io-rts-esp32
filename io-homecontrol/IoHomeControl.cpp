@@ -878,7 +878,8 @@ namespace iohome
                 }
                 else
                 {
-                  dev->second.consecutive_poll_failures++;
+                  if (dev->second.consecutive_poll_failures < 4)
+                    dev->second.consecutive_poll_failures++;
                   int64_t backoff;
                   switch (dev->second.consecutive_poll_failures)
                   {
