@@ -151,6 +151,7 @@ static void ws_send_job_fn(void *arg)
         ESP_LOGW(TAG, "ws_send fd=%d err=%s — removing client", job->fd, esp_err_to_name(err));
         for (int i = 0; i < WS_MAX_CLIENTS; i++)
             if (s_ws_fds[i] == job->fd) { s_ws_fds[i] = -1; break; }
+        httpd_sess_trigger_close(s_server, job->fd);
     }
     free(job);
 }
@@ -167,6 +168,7 @@ static void ws_send_str(int fd, const char *str)
         free(job);
         for (int i = 0; i < WS_MAX_CLIENTS; i++)
             if (s_ws_fds[i] == fd) { s_ws_fds[i] = -1; break; }
+        httpd_sess_trigger_close(s_server, fd);
     }
 }
 
