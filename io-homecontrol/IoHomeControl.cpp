@@ -50,6 +50,7 @@ constexpr int64_t STATUS_UPDATE_NEXT_TRY_US = 60000000;     // 60 seconds to wai
 constexpr int64_t STATUS_UPDATE_AFTER_REMOTE_US = 2000000;  // 2 seconds after detection of a frame sent by a remote
 
 constexpr size_t LOG_MESSAGE_MAXSIZE = 256;
+constexpr int RX_STASH_MAX = 4; // max frames to stash during a single exchange
 
 #define IO_LOGE(a, ...)                                              \
   do                                                                 \
@@ -173,6 +174,76 @@ namespace iohome
       buffer[i / 2] = (uint8_t)strtol(s2.c_str(), nullptr, 16);
       i += 2;
     }
+  }
+
+  /// @brief Receive a frame matching expected_src, expected_dst and expected_cmd within timeout.
+  /// Frames not addressed to expected_dst are silently discarded (ambient traffic).
+  /// Frames addressed to expected_dst but not matching src or cmd are stashed (caller flushes).
+  /// @param expected_src  3-byte node ID expected as source; must not be nullptr
+  /// @param expected_dst  3-byte node ID expected as destination; must not be nullptr
+  /// @param expected_cmd  command ID to match, or -1 to accept any command
+  /// @param timeout       FreeRTOS ticks to wait in total across all receive attempts
+  /// @param result        output frame when a match is found
+  /// @param stash         caller-allocated array of RX_STASH_MAX RxFrameQueueItem
+  /// @param stash_count   in/out: number of frames currently in stash
+  /// @return true if a matching frame was received before timeout
+  static bool ReceiveMatchingFrame(
+      const uint8_t    *expected_src,
+      const uint8_t    *expected_dst,
+      int               expected_cmd,
+      TickType_t        timeout,
+      RxFrameQueueItem &result,
+      RxFrameQueueItem *stash,
+      int              &stash_count)
+  {
+      const int64_t deadline_us = esp_timer_get_time()
+                                  + (int64_t)timeout * portTICK_PERIOD_MS * 1000LL;
+      while (true)
+      {
+          int64_t rem_us = deadline_us - esp_timer_get_time();
+          if (rem_us <= 0) return false;
+          TickType_t ticks = (TickType_t)(rem_us / (portTICK_PERIOD_MS * 1000LL));
+          if (ticks == 0) ticks = 1;
+
+          RxFrameQueueItem item;
+          if (!xQueueReceive(sRxIoQueue, &item, ticks)) return false;
+
+          // Not addressed to us — discard silently
+          if (memcmp(item.frame.dest_node, expected_dst, NODE_ID_SIZE) != 0) continue;
+
+          // Addressed to us — check if it matches this exchange
+          bool src_match = (memcmp(item.frame.src_node, expected_src, NODE_ID_SIZE) == 0);
+          bool cmd_match = (expected_cmd == -1 || item.frame.command_id == (uint8_t)expected_cmd);
+          if (src_match && cmd_match)
+          {
+              result = item;
+              return true;
+          }
+
+          // Addressed to us but not for this exchange — stash it
+          if (stash_count < RX_STASH_MAX)
+          {
+              stash[stash_count++] = item;
+          }
+          else
+          {
+              // Stash full: drop the oldest, shift down, add new at back
+              memmove(&stash[0], &stash[1], sizeof(RxFrameQueueItem) * (RX_STASH_MAX - 1));
+              stash[RX_STASH_MAX - 1] = item;
+              IO_LOGI("ReceiveMatchingFrame: stash full, oldest frame dropped");
+          }
+      }
+  }
+
+  /// @brief Re-queue stashed frames to the front of sRxIoQueue in arrival order.
+  /// Must be called before xSemaphoreGive so ProcessReceivedFrameTask picks them up next.
+  /// @param stash       array filled by ReceiveMatchingFrame
+  /// @param count       number of valid entries in stash
+  static void FlushStash(RxFrameQueueItem *stash, int count)
+  {
+      // Send in reverse order to xQueueSendToFront so arrival order is preserved
+      for (int i = count - 1; i >= 0; i--)
+          xQueueSendToFront(sRxIoQueue, &stash[i], 0);
   }
 
   /// @brief Low priority task that takes logs from queue and send them to registered callback
