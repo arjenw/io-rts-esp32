@@ -42,6 +42,8 @@ namespace iohome
         int64_t move_start_us  = 0;           // esp_timer_get_time() when the last position command was sent (0 = no active movement)
         float   move_start_pos = 0.0f;        // Position at the time the command was sent
         float   move_target_pos = 0.0f;       // Commanded target position
+        // Transient poll state (not serialised, resets on reboot)
+        uint8_t consecutive_poll_failures = 0; // increments on SendAndReceive failure, resets on success
     };
 
     /// @brief Check if a device type supports tilt control

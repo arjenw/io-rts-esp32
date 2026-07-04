@@ -47,6 +47,9 @@ constexpr int64_t STATUS_UPDATE_MAX_TIME_US = 3600000000;   // 1 hour to next st
 constexpr int64_t STATUS_UPDATE_AUTO_MARGIN_US = 60000000;  // 60 seconds to wait for automatic update from device
 constexpr int64_t STATUS_UPDATE_MANUAL_MARGIN_US = 1000000; // 1 second to wait before asking manual update from device
 constexpr int64_t STATUS_UPDATE_NEXT_TRY_US = 60000000;     // 60 seconds to wait if GetStatus failed
+constexpr int64_t STATUS_UPDATE_BACKOFF_2_US = 300'000'000LL;    // 5 min  (2 consecutive failures)
+constexpr int64_t STATUS_UPDATE_BACKOFF_3_US = 1'800'000'000LL;  // 30 min (3 consecutive failures)
+// 4+ consecutive failures reuse STATUS_UPDATE_MAX_TIME_US (1 hour)
 constexpr int64_t STATUS_UPDATE_AFTER_REMOTE_US = 2000000;  // 2 seconds after detection of a frame sent by a remote
 
 constexpr size_t LOG_MESSAGE_MAXSIZE = 256;
@@ -870,12 +873,23 @@ namespace iohome
                 vTaskPrioritySet(NULL, currentPriority);
                 if (exchangeOk)
                 {
+                  dev->second.consecutive_poll_failures = 0;
                   UpdateDeviceStatus(response);
                 }
                 else
                 {
-                  IO_LOGE("UpdateDevicesStatusTask: failed to send request or get response!");
-                  dev->second.next_status_update_timestamp = esp_timer_get_time() + STATUS_UPDATE_NEXT_TRY_US;
+                  dev->second.consecutive_poll_failures++;
+                  int64_t backoff;
+                  switch (dev->second.consecutive_poll_failures)
+                  {
+                    case 1:  backoff = STATUS_UPDATE_NEXT_TRY_US;    break; // 60 s
+                    case 2:  backoff = STATUS_UPDATE_BACKOFF_2_US;   break; // 5 min
+                    case 3:  backoff = STATUS_UPDATE_BACKOFF_3_US;   break; // 30 min
+                    default: backoff = STATUS_UPDATE_MAX_TIME_US;    break; // 1 hr
+                  }
+                  dev->second.next_status_update_timestamp = esp_timer_get_time() + backoff;
+                  IO_LOGW("UpdateDevicesStatusTask: {} poll failed (consecutive: {})",
+                          devId, dev->second.consecutive_poll_failures);
                 }
               }
               xSemaphoreGive(sMutex);
