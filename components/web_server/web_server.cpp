@@ -2711,6 +2711,15 @@ static esp_err_t api_upload_web_post(httpd_req_t *req)
         return ESP_OK;
     }
 
+    // Create parent directories if missing (LittleFS does not auto-create them)
+    for (char *p = filepath + strlen(WEB_BASE_PATH) + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            mkdir(filepath, 0755);
+            *p = '/';
+        }
+    }
+
     FILE *f = fopen(filepath, "w");
     if (!f) {
         ESP_LOGE(TAG, "web upload: cannot open %s", filepath);
