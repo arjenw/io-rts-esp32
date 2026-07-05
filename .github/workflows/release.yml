@@ -136,6 +136,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download Heltec artifacts
         uses: actions/download-artifact@v4
         with:
@@ -151,12 +154,13 @@ jobs:
         with:
           name: lilygo-lora32-artifacts
 
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
+          body_path: docs/release-footer.md
+          append_body: true
           files: |
             heltec-${{ github.ref_name }}-full.bin
             heltec-${{ github.ref_name }}-firmware.bin
