@@ -3141,9 +3141,14 @@ static void calibration_broadcast(const char *id, int step, const char *msg, int
     web_server_broadcast_message(buf);
 }
 
-// require_movement: if true, require position to change from its initial value before accepting a stop.
-// Uses position stability (2 consecutive unchanged polls) rather than the is_stopped flag, because
-// Somfy devices intermittently assert the stopped bit mid-motion.
+// Wait until the device has stopped at a stable position.
+//
+// target_approx >= 0: position must be within 2% of this value before accepting a stop.
+//                     Used for step 1 (go to open) so we don't return while device is still
+//                     at the wrong end.
+// target_approx < 0: any stable position counts (used for measurement steps 2/3).
+// require_movement:   position must change from its first reading before accepting a stop.
+//                     Used for steps 2/3 so we don't return before the device has started.
 static bool wait_for_stopped(const char *deviceID, int step, const char *msg, float target_approx, int timeout_s, bool require_movement = false)
 {
     int prev_pos = -2; // sentinel: no reading yet
@@ -3172,7 +3177,6 @@ static bool wait_for_stopped(const char *deviceID, int step, const char *msg, fl
         calibration_broadcast(deviceID, step, msg, pos);
 
         if (prev_pos == -2) {
-            // first reading — just record it
             prev_pos = pos;
             continue;
         }
@@ -3185,8 +3189,11 @@ static bool wait_for_stopped(const char *deviceID, int step, const char *msg, fl
         }
         prev_pos = pos;
 
-        // Stopped = seen real movement AND position unchanged for 2 consecutive polls (1 s)
-        if (seen_movement && stable_count >= 2)
+        // Gate on target position if specified — prevents step 1 from returning while
+        // the device is still at the wrong end waiting for the open command to take effect.
+        bool near_target = (target_approx < 0) || (abs(pos - (int)target_approx) <= 2);
+
+        if (seen_movement && stable_count >= 2 && near_target)
             return true;
     }
     return false; // timeout
@@ -3218,7 +3225,7 @@ static void calibration_task(void *arg)
     t0 = esp_timer_get_time();
     if (s_manager && s_manager->mIoHome)
         s_manager->mIoHome->CloseDevice(id);
-    if (!wait_for_stopped(id, 2, "Measuring close travel\xe2\x80\xa6", 100, 120, true)) {
+    if (!wait_for_stopped(id, 2, "Measuring close travel\xe2\x80\xa6", -1, 120, true)) {
         // Save partial if we got at least some travel
         char buf[150];
         snprintf(buf, sizeof(buf), "{\"type\":\"calibration_failed\",\"id\":\"%s\",\"reason\":\"%s\"}", id,
@@ -3243,7 +3250,7 @@ static void calibration_task(void *arg)
     t2 = esp_timer_get_time();
     if (s_manager && s_manager->mIoHome)
         s_manager->mIoHome->OpenDevice(id);
-    if (!wait_for_stopped(id, 3, "Measuring open travel\xe2\x80\xa6", 0, 120, true)) {
+    if (!wait_for_stopped(id, 3, "Measuring open travel\xe2\x80\xa6", -1, 120, true)) {
         char buf[150];
         snprintf(buf, sizeof(buf), "{\"type\":\"calibration_failed\",\"id\":\"%s\",\"reason\":\"%s\"}", id,
             s_cal_cancel ? "cancelled" : "timeout");
