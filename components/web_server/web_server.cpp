@@ -3141,19 +3141,17 @@ static void calibration_broadcast(const char *id, int step, const char *msg, int
     web_server_broadcast_message(buf);
 }
 
-// Wait until the device has stopped at a stable position.
+// Wait until the device reports is_stopped=true after movement.
 //
 // target_approx >= 0: position must be within 2% of this value before accepting a stop.
-//                     Used for step 1 (go to open) so we don't return while device is still
-//                     at the wrong end.
-// target_approx < 0: any stable position counts (used for measurement steps 2/3).
-// require_movement:   position must change from its first reading before accepting a stop.
+//                     Used for step 1 so we don't return while the device is still at the
+//                     wrong end waiting for the open command to take effect.
+// target_approx < 0: any stopped position counts (used for measurement steps 2/3).
+// require_movement:   is_stopped must transition false→true (device must actually move).
 //                     Used for steps 2/3 so we don't return before the device has started.
 static bool wait_for_stopped(const char *deviceID, int step, const char *msg, float target_approx, int timeout_s, bool require_movement = false)
 {
-    int prev_pos = -2; // sentinel: no reading yet
-    int stable_count = 0;
-    bool seen_movement = !require_movement;
+    bool seen_moving = !require_movement;
 
     for (int elapsed = 0; elapsed < timeout_s * 2; elapsed++) // poll every 500ms
     {
@@ -3168,32 +3166,19 @@ static bool wait_for_stopped(const char *deviceID, int step, const char *msg, fl
 
         s_manager->mIoDevicesMutex.lock();
         auto it = s_manager->mIoDevices.find(deviceID);
+        bool stopped = (it != s_manager->mIoDevices.end()) && it->second.is_stopped;
         int pos = (it != s_manager->mIoDevices.end() && it->second.position != iohome::UNKNOWN_POSITION)
                   ? (int)it->second.position : -1;
         s_manager->mIoDevicesMutex.unlock();
 
-        if (pos < 0) continue;
+        if (!stopped) seen_moving = true;
 
-        calibration_broadcast(deviceID, step, msg, pos);
+        if (pos >= 0)
+            calibration_broadcast(deviceID, step, msg, pos);
 
-        if (prev_pos == -2) {
-            prev_pos = pos;
-            continue;
-        }
+        bool near_target = (target_approx < 0) || (pos >= 0 && abs(pos - (int)target_approx) <= 2);
 
-        if (pos != prev_pos) {
-            seen_movement = true;
-            stable_count = 0;
-        } else {
-            stable_count++;
-        }
-        prev_pos = pos;
-
-        // Gate on target position if specified — prevents step 1 from returning while
-        // the device is still at the wrong end waiting for the open command to take effect.
-        bool near_target = (target_approx < 0) || (abs(pos - (int)target_approx) <= 2);
-
-        if (seen_movement && stable_count >= 2 && near_target)
+        if (stopped && seen_moving && near_target)
             return true;
     }
     return false; // timeout
