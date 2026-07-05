@@ -56,7 +56,7 @@
 static const char *TAG = "web_server";
 
 #define WEB_BASE_PATH   "/web"
-#define FILE_BUF_SIZE   4096
+#define FILE_BUF_SIZE   8192
 #define BODY_MAX_LEN    2048
 #define UPLOAD_MAX_LEN  32768
 #define WS_MAX_CLIENTS  4
@@ -80,6 +80,7 @@ static int  s_diag_last_method   = -99;  // req->method at top of ws_handler
 
 static QueueHandle_t        s_log_queue      = nullptr;
 static vprintf_like_t       s_orig_vprintf   = nullptr;
+static uint32_t             s_log_drop_count = 0;
 
 static void strip_ansi(const char *src, char *dst, size_t dst_size)
 {
@@ -112,8 +113,8 @@ static int web_log_vprintf(const char *fmt, va_list args)
         int len = (int)strlen(line);
         while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
             line[--len] = '\0';
-        if (len > 0)
-            xQueueSend(s_log_queue, line, 0);
+        if (len > 0 && xQueueSend(s_log_queue, line, 0) != pdTRUE)
+            s_log_drop_count++;
     }
     va_end(copy);
     return ret;
@@ -169,20 +170,6 @@ static void ws_send_str(int fd, const char *str)
         for (int i = 0; i < WS_MAX_CLIENTS; i++)
             if (s_ws_fds[i] == fd) { s_ws_fds[i] = -1; break; }
         httpd_sess_trigger_close(s_server, fd);
-    }
-}
-
-static void ws_add_client(int fd)
-{
-    for (int i = 0; i < WS_MAX_CLIENTS; i++)
-        if (s_ws_fds[i] == fd) return;
-    for (int i = 0; i < WS_MAX_CLIENTS; i++) {
-        if (s_ws_fds[i] == -1) {
-            s_ws_fds[i] = fd;
-            ws_send_str(fd, "{\"type\":\"init\"}");
-            ESP_LOGI(TAG, "WS client connected fd=%d", fd);
-            break;
-        }
     }
 }
 
@@ -296,19 +283,30 @@ static const char *log_classify(const char *line)
     return "debug";
 }
 
+// Escape a string for embedding in a JSON value (writes into dst, which must be >= 2*src_len+1)
+static void json_escape(const char *src, char *dst, size_t dst_size)
+{
+    size_t j = 0;
+    for (size_t i = 0; src[i] && j + 2 < dst_size; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if      (c == '\\') { dst[j++] = '\\'; dst[j++] = '\\'; }
+        else if (c == '"')  { dst[j++] = '\\'; dst[j++] = '"';  }
+        else if (c == '\n') { dst[j++] = '\\'; dst[j++] = 'n';  }
+        else if (c == '\r') { dst[j++] = '\\'; dst[j++] = 'r';  }
+        else if (c == '\t') { dst[j++] = '\\'; dst[j++] = 't';  }
+        else if (c >= 0x20) { dst[j++] = c; }
+        // control chars < 0x20 (other than above) are silently dropped
+    }
+    dst[j] = '\0';
+}
+
 void web_server_broadcast_log(const char *message)
 {
     if (!s_server) return;
     const char *level = log_classify(message);
-    char escaped[200];
-    int j = 0;
-    for (int i = 0; message[i] && j < (int)sizeof(escaped) - 1; i++) {
-        char c = message[i];
-        if (c == '"') c = '\'';
-        escaped[j++] = c;
-    }
-    escaped[j] = '\0';
-    char buf[280];
+    char escaped[400]; // up to 2× source for worst-case escaping
+    json_escape(message, escaped, sizeof(escaped));
+    char buf[480];
     snprintf(buf, sizeof(buf), "{\"type\":\"log\",\"level\":\"%s\",\"message\":\"%s\"}", level, escaped);
     for (int i = 0; i < WS_MAX_CLIENTS; i++)
         if (s_ws_fds[i] != -1) ws_send_str(s_ws_fds[i], buf);
@@ -423,14 +421,15 @@ static esp_err_t static_file_handler(httpd_req_t *req)
     char *buf = (char *)malloc(FILE_BUF_SIZE);
     if (!buf) { fclose(f); return ESP_FAIL; }
 
+    bool send_ok = true;
     size_t n;
     while ((n = fread(buf, 1, FILE_BUF_SIZE, f)) > 0) {
-        if (httpd_resp_send_chunk(req, buf, n) != ESP_OK) break;
+        if (httpd_resp_send_chunk(req, buf, n) != ESP_OK) { send_ok = false; break; }
     }
     fclose(f);
     free(buf);
-    httpd_resp_send_chunk(req, NULL, 0);
-    return ESP_OK;
+    if (send_ok) httpd_resp_send_chunk(req, NULL, 0);
+    return send_ok ? ESP_OK : ESP_FAIL;
 }
 
 // ─── GET /api/devices ───────────────────────────────────────────────────────
@@ -640,7 +639,7 @@ static esp_err_t api_action_post(httpd_req_t *req)
             }
         }
     } else if (strcmp(action, "setTransitTime") == 0) {
-        if (strlen(deviceId) > 0 && value >= 0) {
+        if (strlen(deviceId) > 0 && value >= 0 && value <= 300) {
             ok = s_manager->SetTransitTime(deviceId, (uint32_t)(value * 1000));
         }
     } else if (strcmp(action, "calibrate") == 0) {
@@ -680,6 +679,7 @@ static esp_err_t api_debug_get(httpd_req_t *req)
     }
     cJSON_AddNumberToObject(obj, "ws_active", active);
     cJSON_AddBoolToObject(obj, "log_queue_ok", s_log_queue != nullptr);
+    cJSON_AddNumberToObject(obj, "log_drop_count", s_log_drop_count);
     cJSON_AddNumberToObject(obj, "diag_last_fd",   s_diag_last_fd);
     cJSON_AddNumberToObject(obj, "diag_init_err",  s_diag_init_err);
     cJSON_AddStringToObject(obj, "diag_init_err_s", esp_err_to_name((esp_err_t)s_diag_init_err));
