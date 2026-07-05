@@ -200,6 +200,15 @@
                     if (window.MiOpenSettings && window.MiOpenSettings.onSendKeyDone) {
                         window.MiOpenSettings.onSendKeyDone();
                     }
+                } else if (data.type === "calibration_progress") {
+                    if (window.MiOpenDevices && window.MiOpenDevices.onCalibrationProgress)
+                        window.MiOpenDevices.onCalibrationProgress(data);
+                } else if (data.type === "calibration_done") {
+                    if (window.MiOpenDevices && window.MiOpenDevices.onCalibrationDone)
+                        window.MiOpenDevices.onCalibrationDone(data);
+                } else if (data.type === "calibration_failed") {
+                    if (window.MiOpenDevices && window.MiOpenDevices.onCalibrationFailed)
+                        window.MiOpenDevices.onCalibrationFailed(data);
                 }
             } catch (e) { /* ignore parse errors */ }
         };

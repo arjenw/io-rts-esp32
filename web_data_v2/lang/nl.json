@@ -471,5 +471,16 @@
   "status.remote_id_invalid": "Moet exact 6 hexadecimale tekens zijn (0–9, A–F).",
   "confirm.delete_remote": "Afstandsbediening {id} van alle apparaten verwijderen?",
   "label.quiet_mode": "Stille modus",
-  "popup.quiet_desc": "Langzamere, stillere motorwerking."
+  "popup.quiet_desc": "Langzamere, stillere motorwerking.",
+  "popup.transit_time": "Transition time",
+  "popup.transit_time_desc": "Time for the device to travel its full range.",
+  "popup.transit_not_set": "Not set",
+  "popup.transit_time_s": "{s} s",
+  "popup.transit_save": "Save",
+  "popup.transit_calibrate": "Calibrate",
+  "popup.transit_cancel": "Cancel",
+  "popup.transit_saved": "Transition time saved.",
+  "popup.transit_done": "Calibration done: {s} s",
+  "popup.transit_failed": "Calibration failed.",
+  "popup.transit_cancelled": "Calibration cancelled."
 }
