@@ -266,6 +266,14 @@ void web_server_broadcast_device_event(const char *device_id, const char *event_
         if (s_ws_fds[i] != -1) ws_send_str(s_ws_fds[i], buf);
 }
 
+// Periodic keepalive — detects stale fd slots via the C-1 send-failure cleanup path
+static void ws_keepalive_cb(void *)
+{
+    for (int i = 0; i < WS_MAX_CLIENTS; i++)
+        if (s_ws_fds[i] != -1)
+            ws_send_str(s_ws_fds[i], "{\"type\":\"ping\"}");
+}
+
 void web_server_broadcast_message(const char *json_str)
 {
     if (!s_server) return;
@@ -371,19 +379,47 @@ static esp_err_t static_file_handler(httpd_req_t *req)
     }
     snprintf(filepath, sizeof(filepath), "%s%s", WEB_BASE_PATH, uri);
 
-    struct stat st;
-    if (stat(filepath, &st) != 0) {
+    // Check for both original and pre-compressed .gz version (CSS/JS may only have .gz)
+    char gz_path[604];
+    snprintf(gz_path, sizeof(gz_path), "%s.gz", filepath);
+    struct stat st, gz_st;
+    bool orig_exists = (stat(filepath, &st) == 0);
+    bool gz_exists   = (stat(gz_path, &gz_st) == 0);
+    if (!orig_exists && !gz_exists) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
         return ESP_FAIL;
     }
 
-    FILE *f = fopen(filepath, "r");
+    // Serve .gz if client accepts gzip; always use .gz when no original exists
+    bool serve_gz = false;
+    if (gz_exists) {
+        char ae_buf[64] = {};
+        bool client_gz = (
+            httpd_req_get_hdr_value_str(req, "Accept-Encoding", ae_buf, sizeof(ae_buf)) == ESP_OK &&
+            strstr(ae_buf, "gzip") != nullptr
+        );
+        serve_gz = client_gz || !orig_exists;
+    }
+
+    FILE *f = fopen(serve_gz ? gz_path : filepath, "r");
     if (!f) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Cannot open file");
         return ESP_FAIL;
     }
 
     httpd_resp_set_type(req, content_type_for(filepath));
+    if (serve_gz) httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    // Cache versioned assets; revalidate HTML/JSON so updated content is always fetched
+    {
+        const char *ext = strrchr(filepath, '.');
+        if (ext && (strcmp(ext, ".css") == 0 || strcmp(ext, ".js") == 0 ||
+                    strcmp(ext, ".png") == 0 || strcmp(ext, ".svg") == 0 ||
+                    strcmp(ext, ".ico") == 0)) {
+            httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=31536000, immutable");
+        } else {
+            httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+        }
+    }
     char *buf = (char *)malloc(FILE_BUF_SIZE);
     if (!buf) { fclose(f); return ESP_FAIL; }
 
@@ -634,6 +670,7 @@ static esp_err_t api_action_post(httpd_req_t *req)
 
 static esp_err_t api_debug_get(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     cJSON *obj = cJSON_CreateObject();
     cJSON *fds_arr = cJSON_AddArrayToObject(obj, "ws_fds");
     int active = 0;
@@ -958,12 +995,12 @@ static esp_err_t api_wifi_fallback_post(httpd_req_t *req)
 
 // ─── GET /api/wifi/scan ─────────────────────────────────────────────────────
 
-static esp_err_t api_wifi_scan_get(httpd_req_t *req)
+static void wifi_scan_task(void *arg)
 {
-    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
+    httpd_req_t *req = static_cast<httpd_req_t *>(arg);
     wifi_scan_config_t scan_cfg = {};
     scan_cfg.scan_type = WIFI_SCAN_TYPE_PASSIVE;
-    esp_wifi_scan_start(&scan_cfg, true); // blocking
+    esp_wifi_scan_start(&scan_cfg, true);
 
     uint16_t ap_count = 0;
     esp_wifi_scan_get_ap_num(&ap_count);
@@ -975,7 +1012,7 @@ static esp_err_t api_wifi_scan_get(httpd_req_t *req)
         esp_wifi_scan_get_ap_records(&ap_count, records);
         for (uint16_t i = 0; i < ap_count; i++) {
             const char *ssid = (const char *)records[i].ssid;
-            if (!ssid[0]) continue; // skip hidden
+            if (!ssid[0]) continue;
             cJSON *entry = cJSON_CreateObject();
             cJSON_AddStringToObject(entry, "ssid", ssid);
             cJSON_AddNumberToObject(entry, "rssi", records[i].rssi);
@@ -986,6 +1023,22 @@ static esp_err_t api_wifi_scan_get(httpd_req_t *req)
     }
 
     send_json(req, arr);
+    httpd_req_async_handler_complete(req);
+    vTaskDelete(NULL);
+}
+
+static esp_err_t api_wifi_scan_get(httpd_req_t *req)
+{
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
+    httpd_req_t *async_req = nullptr;
+    if (httpd_req_async_handler_begin(req, &async_req) != ESP_OK) {
+        send_result(req, false, "Failed to init async scan");
+        return ESP_OK;
+    }
+    if (xTaskCreate(wifi_scan_task, "wifi_scan", 4096, async_req, 5, NULL) != pdPASS) {
+        send_json(async_req, cJSON_CreateArray());
+        httpd_req_async_handler_complete(async_req);
+    }
     return ESP_OK;
 }
 #endif // CONFIG_CONNECTIVITY_CHOICE_WIFI
@@ -1428,8 +1481,74 @@ static void syslog_ping_timeout_cb(esp_ping_handle_t hdl, void *args)
     xSemaphoreGive(r->sem);
 }
 
+struct SyslogPingArgs {
+    httpd_req_t *req;
+    ip_addr_t    target;
+};
+
+static void syslog_ping_task(void *arg)
+{
+    auto *a = static_cast<SyslogPingArgs *>(arg);
+    httpd_req_t *req = a->req;
+    ip_addr_t target = a->target;
+    free(a);
+
+    SyslogPingResult result = {};
+    result.sem = xSemaphoreCreateBinary();
+    if (!result.sem) {
+        cJSON *obj = cJSON_CreateObject();
+        cJSON_AddBoolToObject(obj, "reachable", false);
+        cJSON_AddStringToObject(obj, "message", "Internal error");
+        send_json(req, obj);
+        httpd_req_async_handler_complete(req);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    esp_ping_config_t cfg = ESP_PING_DEFAULT_CONFIG();
+    cfg.target_addr     = target;
+    cfg.count           = 1;
+    cfg.timeout_ms      = 3000;
+    cfg.task_stack_size = 4096;
+
+    esp_ping_callbacks_t cbs = {};
+    cbs.cb_args         = &result;
+    cbs.on_ping_success = syslog_ping_success_cb;
+    cbs.on_ping_timeout = syslog_ping_timeout_cb;
+
+    esp_ping_handle_t hdl = nullptr;
+    if (esp_ping_new_session(&cfg, &cbs, &hdl) != ESP_OK) {
+        vSemaphoreDelete(result.sem);
+        cJSON *obj = cJSON_CreateObject();
+        cJSON_AddBoolToObject(obj, "reachable", false);
+        cJSON_AddStringToObject(obj, "message", "Failed to start ping");
+        send_json(req, obj);
+        httpd_req_async_handler_complete(req);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    esp_ping_start(hdl);
+    xSemaphoreTake(result.sem, pdMS_TO_TICKS(4000));
+    esp_ping_stop(hdl);
+    esp_ping_delete_session(hdl);
+    vSemaphoreDelete(result.sem);
+
+    cJSON *obj = cJSON_CreateObject();
+    cJSON_AddBoolToObject(obj, "reachable", result.reachable);
+    if (result.reachable)
+        cJSON_AddNumberToObject(obj, "latency_ms", result.latency_ms);
+    else
+        cJSON_AddStringToObject(obj, "message", "No response within 3 seconds");
+    send_json(req, obj);
+    httpd_req_async_handler_complete(req);
+    vTaskDelete(NULL);
+}
+
 static esp_err_t api_syslog_ping_post(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
+
     std::string server = Config::SyslogConfig::GetServer();
     if (!Config::SyslogConfig::isEnabled() || server.empty()) {
         cJSON *obj = cJSON_CreateObject();
@@ -1439,7 +1558,6 @@ static esp_err_t api_syslog_ping_post(httpd_req_t *req)
         return ESP_OK;
     }
 
-    // Resolve server address
     struct addrinfo hints = {};
     hints.ai_family   = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
@@ -1457,51 +1575,31 @@ static esp_err_t api_syslog_ping_post(httpd_req_t *req)
     IP_SET_TYPE_VAL(target, IPADDR_TYPE_V4);
     freeaddrinfo(res);
 
-    SyslogPingResult result = {};
-    result.sem = xSemaphoreCreateBinary();
-    if (!result.sem) {
-        cJSON *obj = cJSON_CreateObject();
-        cJSON_AddBoolToObject(obj, "reachable", false);
-        cJSON_AddStringToObject(obj, "message", "Internal error");
-        send_json(req, obj);
+    httpd_req_t *async_req = nullptr;
+    if (httpd_req_async_handler_begin(req, &async_req) != ESP_OK) {
+        send_result(req, false, "Failed to init async ping");
         return ESP_OK;
     }
 
-    esp_ping_config_t cfg = ESP_PING_DEFAULT_CONFIG();
-    cfg.target_addr  = target;
-    cfg.count        = 1;
-    cfg.timeout_ms   = 3000;
-    cfg.task_stack_size = 4096;
-
-    esp_ping_callbacks_t cbs = {};
-    cbs.cb_args        = &result;
-    cbs.on_ping_success = syslog_ping_success_cb;
-    cbs.on_ping_timeout = syslog_ping_timeout_cb;
-
-    esp_ping_handle_t hdl = nullptr;
-    if (esp_ping_new_session(&cfg, &cbs, &hdl) != ESP_OK) {
-        vSemaphoreDelete(result.sem);
+    auto *args = static_cast<SyslogPingArgs *>(malloc(sizeof(SyslogPingArgs)));
+    if (!args) {
         cJSON *obj = cJSON_CreateObject();
         cJSON_AddBoolToObject(obj, "reachable", false);
-        cJSON_AddStringToObject(obj, "message", "Failed to start ping");
-        send_json(req, obj);
+        cJSON_AddStringToObject(obj, "message", "Out of memory");
+        send_json(async_req, obj);
+        httpd_req_async_handler_complete(async_req);
         return ESP_OK;
     }
-
-    esp_ping_start(hdl);
-    // Block until success or timeout callback fires (max 4 s)
-    xSemaphoreTake(result.sem, pdMS_TO_TICKS(4000));
-    esp_ping_stop(hdl);
-    esp_ping_delete_session(hdl);
-    vSemaphoreDelete(result.sem);
-
-    cJSON *obj = cJSON_CreateObject();
-    cJSON_AddBoolToObject(obj, "reachable", result.reachable);
-    if (result.reachable)
-        cJSON_AddNumberToObject(obj, "latency_ms", result.latency_ms);
-    else
-        cJSON_AddStringToObject(obj, "message", "No response within 3 seconds");
-    send_json(req, obj);
+    args->req    = async_req;
+    args->target = target;
+    if (xTaskCreate(syslog_ping_task, "syslog_ping", 6144, args, 5, NULL) != pdPASS) {
+        free(args);
+        cJSON *obj = cJSON_CreateObject();
+        cJSON_AddBoolToObject(obj, "reachable", false);
+        cJSON_AddStringToObject(obj, "message", "Failed to start ping task");
+        send_json(async_req, obj);
+        httpd_req_async_handler_complete(async_req);
+    }
     return ESP_OK;
 }
 
@@ -2329,6 +2427,7 @@ static esp_err_t api_factory_reset_post(httpd_req_t *req)
 
 static esp_err_t api_somfy_credentials_get(httpd_req_t *req)
 {
+    if (!ota_check_key(req)) { httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized"); return ESP_OK; }
     char email[96] = {};
     nvs_handle_t h;
     if (nvs_open("somfy", NVS_READONLY, &h) == ESP_OK) {
@@ -3189,6 +3288,16 @@ void web_server_start(void *ioRtsManager)
         return;
     }
     s_server = server;
+
+    // Start WebSocket keepalive timer — pings all clients every 30 s
+    {
+        static esp_timer_handle_t s_ws_ka_timer;
+        esp_timer_create_args_t ka = {};
+        ka.callback = ws_keepalive_cb;
+        ka.name = "ws_ka";
+        if (esp_timer_create(&ka, &s_ws_ka_timer) == ESP_OK)
+            esp_timer_start_periodic(s_ws_ka_timer, 30ULL * 1000 * 1000);
+    }
 
     // Helper lambda to register a plain HTTP route
     auto reg = [&](const char *uri, httpd_method_t method, esp_err_t (*handler)(httpd_req_t *)) {

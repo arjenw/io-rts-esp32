@@ -18,4 +18,19 @@ project(io-rts-esp32)
 # Stamp web UI version into LittleFS so /api/info can report it
 file(WRITE ${CMAKE_SOURCE_DIR}/web_data_v2/version.json "{\"version\":\"${PROJECT_VER}\"}\n")
 
-littlefs_create_partition_image(web ${CMAKE_SOURCE_DIR}/web_data_v2 FLASH_IN_PROJECT)
+# Stage web assets with CSS/JS replaced by .gz versions (saves ~40 KB on the partition)
+set(WEB_STAGED_DIR "${CMAKE_BINARY_DIR}/web_staged")
+file(COPY "${CMAKE_SOURCE_DIR}/web_data_v2/" DESTINATION "${WEB_STAGED_DIR}")
+
+find_program(GZIP_EXECUTABLE gzip)
+if(GZIP_EXECUTABLE)
+    file(GLOB_RECURSE _web_compress
+        "${WEB_STAGED_DIR}/*.css"
+        "${WEB_STAGED_DIR}/*.js")
+    foreach(_f ${_web_compress})
+        execute_process(COMMAND "${GZIP_EXECUTABLE}" -9 -f "${_f}")
+    endforeach()
+    message(STATUS "Staged compressed web assets in ${WEB_STAGED_DIR}")
+endif()
+
+littlefs_create_partition_image(web "${WEB_STAGED_DIR}" FLASH_IN_PROJECT)
