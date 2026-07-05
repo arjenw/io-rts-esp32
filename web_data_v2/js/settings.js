@@ -537,8 +537,7 @@
         g("io-sniff-use-key").addEventListener("click", function () { useSniffedKey(app); });
 
         initLearnKey(app);
-        initPairDeviceKey(app);
-        initSendKey();
+        initSomfyCredentials();
         loadIoKey(app);
     }
 
@@ -697,7 +696,6 @@
         function reloadSettings() {
             stopSniffPoll();
             if (learnCountdownTimer) { clearInterval(learnCountdownTimer); learnCountdownTimer = null; }
-            if (pairDeviceCountdownTimer) { clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null; }
 
             if (reloadInProgress) return;
             reloadInProgress = true;
@@ -839,160 +837,7 @@
         });
     }
 
-    let pairDeviceCountdownTimer = null;
-    let pairDeviceSecondsLeft = 0;
-
-    function resetPairDeviceModal() {
-        if (pairDeviceCountdownTimer) { clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null; }
-        g("io-pair-device-countdown-row").style.display = "none";
-        g("io-pair-device-result-row").style.display = "none";
-        g("io-pair-device-status").textContent = "";
-        g("io-pair-device-start").style.display = "";
-        g("io-pair-device-retry").style.display = "none";
-        g("io-pair-device-use-key").style.display = "none";
-    }
-
-    async function cancelPairDevice() {
-        if (pairDeviceCountdownTimer) { clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null; }
-        try { await window.MiOpenApi.postJson("/api/pair-device/stop", {}); } catch (e) { /* ignore */ }
-    }
-
-    async function startPairDevice(app) {
-        g("io-pair-device-start").style.display = "none";
-        g("io-pair-device-retry").style.display = "none";
-        g("io-pair-device-result-row").style.display = "none";
-        g("io-pair-device-status").textContent = "";
-        g("io-pair-device-countdown-row").style.display = "";
-
-        pairDeviceSecondsLeft = 120;
-        g("io-pair-device-countdown").textContent = pairDeviceSecondsLeft;
-
-        try { await window.MiOpenApi.postJson("/api/pair-device/start", {}); } catch (e) {
-            g("io-pair-device-status").textContent = t("status.failed-to-start", { message: e.message || e });
-            g("io-pair-device-countdown-row").style.display = "none";
-            g("io-pair-device-start").style.display = "";
-            return;
-        }
-
-        pairDeviceCountdownTimer = setInterval(function () {
-            pairDeviceSecondsLeft--;
-            g("io-pair-device-countdown").textContent = pairDeviceSecondsLeft;
-            if (pairDeviceSecondsLeft <= 0) {
-                clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null;
-                g("io-pair-device-countdown-row").style.display = "none";
-                g("io-pair-device-status").textContent = t("status.no-key-received");
-                g("io-pair-device-retry").style.display = "";
-            }
-        }, 1000);
-    }
-
-    function onPairDeviceActive(remaining_s) {
-        if (remaining_s !== undefined) {
-            pairDeviceSecondsLeft = remaining_s;
-            g("io-pair-device-countdown").textContent = pairDeviceSecondsLeft;
-        }
-    }
-
-    function onPairDeviceFailed() {
-        if (pairDeviceCountdownTimer) { clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null; }
-        g("io-pair-device-countdown-row").style.display = "none";
-        g("io-pair-device-status").textContent = t("status.handshake-failed");
-        g("io-pair-device-retry").style.display = "";
-    }
-
-    function onPairDeviceKey(key) {
-        if (!key) return;
-        if (pairDeviceCountdownTimer) { clearInterval(pairDeviceCountdownTimer); pairDeviceCountdownTimer = null; }
-        g("io-pair-device-countdown-row").style.display = "none";
-        g("io-pair-device-captured-key").textContent = key;
-        g("io-pair-device-result-row").style.display = "";
-        g("io-pair-device-use-key").dataset.key = key;
-        g("io-pair-device-use-key").style.display = "";
-        g("io-pair-device-status").textContent = t("status.key-received");
-    }
-
-    function initPairDeviceKey(app) {
-        g("io-key-pair-device").addEventListener("click", function () {
-            resetPairDeviceModal();
-            g("io-key-pair-device-modal").classList.add("open");
-        });
-        g("io-pair-device-cancel").addEventListener("click", async function () {
-            await cancelPairDevice();
-            g("io-key-pair-device-modal").classList.remove("open");
-        });
-        g("io-key-pair-device-modal").addEventListener("click", async function (e) {
-            if (e.target === this) { await cancelPairDevice(); this.classList.remove("open"); }
-        });
-        g("io-pair-device-start").addEventListener("click", function () { startPairDevice(app); });
-        g("io-pair-device-retry").addEventListener("click", function () { startPairDevice(app); });
-        g("io-pair-device-use-key").addEventListener("click", async function () {
-            const key = this.dataset.key;
-            await cancelPairDevice();
-            g("io-key-pair-device-modal").classList.remove("open");
-            openIoKeyEditModal(app, key);
-        });
-    }
-
-    let sendKeyTimer = null;
-    let sendKeySeconds = 0;
-
-    function resetSendKeyModal() {
-        if (sendKeyTimer) { clearInterval(sendKeyTimer); sendKeyTimer = null; }
-        g("io-send-key-countdown-row").style.display = "none";
-        g("io-send-key-status").textContent = "";
-        g("io-send-key-start").style.display = "";
-    }
-
-    async function startSendKey() {
-        if (sendKeyTimer) { clearInterval(sendKeyTimer); sendKeyTimer = null; }
-        g("io-send-key-start").style.display = "none";
-        g("io-send-key-status").textContent = "";
-        g("io-send-key-countdown-row").style.display = "";
-        sendKeySeconds = 30;
-        g("io-send-key-countdown").textContent = sendKeySeconds;
-        try { await window.MiOpenApi.postJson("/api/send-key/start", {}); } catch (e) {
-            g("io-send-key-status").textContent = t("status.failed-to-start", { message: e.message || e });
-            g("io-send-key-countdown-row").style.display = "none";
-            g("io-send-key-start").style.display = "";
-            return;
-        }
-        sendKeyTimer = setInterval(function () {
-            sendKeySeconds--;
-            g("io-send-key-countdown").textContent = sendKeySeconds;
-            if (sendKeySeconds <= 0) {
-                clearInterval(sendKeyTimer); sendKeyTimer = null;
-                g("io-send-key-countdown-row").style.display = "none";
-                g("io-send-key-status").textContent = t("status.session-ended");
-                g("io-send-key-start").style.display = "";
-            }
-        }, 1000);
-    }
-
-    function onSendKeyDone() {
-        if (sendKeyTimer) { clearInterval(sendKeyTimer); sendKeyTimer = null; }
-        g("io-send-key-countdown-row").style.display = "none";
-        g("io-send-key-status").textContent = t("status.session-ended");
-        g("io-send-key-start").style.display = "";
-    }
-
-    function initSendKey() {
-        g("io-key-send-key").addEventListener("click", function () {
-            resetSendKeyModal();
-            g("io-send-key-modal").classList.add("open");
-        });
-        g("io-send-key-cancel").addEventListener("click", async function () {
-            if (sendKeyTimer) { clearInterval(sendKeyTimer); sendKeyTimer = null; }
-            try { await window.MiOpenApi.postJson("/api/send-key/stop", {}); } catch (e) { /* ignore */ }
-            g("io-send-key-modal").classList.remove("open");
-        });
-        g("io-send-key-modal").addEventListener("click", async function (e) {
-            if (e.target !== this) return;
-            if (sendKeyTimer) { clearInterval(sendKeyTimer); sendKeyTimer = null; }
-            try { await window.MiOpenApi.postJson("/api/send-key/stop", {}); } catch (e) { /* ignore */ }
-            this.classList.remove("open");
-        });
-        g("io-send-key-start").addEventListener("click", function () { startSendKey(); });
-
+    function initSomfyCredentials() {
         window.MiOpenApi.requestJson("/api/somfy/credentials").then(function(r){var e=document.getElementById("somfy-email");if(e&&r.email)e.value=r.email;}).catch(function(){});
         var _se=document.getElementById("somfy-save");
         if(_se)_se.addEventListener("click",async function(){var e=(document.getElementById("somfy-email")||{}).value||"",p=(document.getElementById("somfy-password")||{}).value||"",s=document.getElementById("somfy-status");if(!e||!p){if(s)s.textContent="Enter both email and password.";return;}try{var r=await window.MiOpenApi.postJson("/api/somfy/credentials",{email:e,password:p});if(s)s.textContent=r.success?"Saved.":(r.message||"Failed.");}catch(x){if(s)s.textContent="Error saving credentials.";}});
@@ -1020,9 +865,7 @@
             }
         },
         onKeyCaptured: onKeyCaptured,
-        onLearnActive: onLearnActive, onLearnFailed: onLearnFailed, onLearnKey: onLearnKey,
-        onPairDeviceActive: onPairDeviceActive, onPairDeviceFailed: onPairDeviceFailed, onPairDeviceKey: onPairDeviceKey,
-        onSendKeyDone: onSendKeyDone
+        onLearnActive: onLearnActive, onLearnFailed: onLearnFailed, onLearnKey: onLearnKey
     };
 
 })();
