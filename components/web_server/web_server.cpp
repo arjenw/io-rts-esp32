@@ -3141,38 +3141,53 @@ static void calibration_broadcast(const char *id, int step, const char *msg, int
     web_server_broadcast_message(buf);
 }
 
-// require_movement: if true, only return when is_stopped transitions false→true.
-// This prevents false positives when the device is already stopped before it starts moving.
+// require_movement: if true, require position to change from its initial value before accepting a stop.
+// Uses position stability (2 consecutive unchanged polls) rather than the is_stopped flag, because
+// Somfy devices intermittently assert the stopped bit mid-motion.
 static bool wait_for_stopped(const char *deviceID, int step, const char *msg, float target_approx, int timeout_s, bool require_movement = false)
 {
-    bool seen_moving = !require_movement;
+    int prev_pos = -2; // sentinel: no reading yet
+    int stable_count = 0;
+    bool seen_movement = !require_movement;
+
     for (int elapsed = 0; elapsed < timeout_s * 2; elapsed++) // poll every 500ms
     {
         if (s_cal_cancel) return false;
 
-        // Poll device status
         if (s_manager && s_manager->mIoHome)
             s_manager->mIoHome->ForceDeviceStatusUpdate(deviceID);
 
         vTaskDelay(pdMS_TO_TICKS(500));
 
-        if (s_manager)
-        {
-            s_manager->mIoDevicesMutex.lock();
-            auto it = s_manager->mIoDevices.find(deviceID);
-            bool stopped = (it != s_manager->mIoDevices.end()) && it->second.is_stopped;
-            int pos = (it != s_manager->mIoDevices.end() && it->second.position != iohome::UNKNOWN_POSITION)
-                      ? (int)it->second.position : -1;
-            s_manager->mIoDevicesMutex.unlock();
+        if (!s_manager) continue;
 
-            if (!stopped) seen_moving = true;
+        s_manager->mIoDevicesMutex.lock();
+        auto it = s_manager->mIoDevices.find(deviceID);
+        int pos = (it != s_manager->mIoDevices.end() && it->second.position != iohome::UNKNOWN_POSITION)
+                  ? (int)it->second.position : -1;
+        s_manager->mIoDevicesMutex.unlock();
 
-            if (pos >= 0)
-                calibration_broadcast(deviceID, step, msg, pos);
+        if (pos < 0) continue;
 
-            if (stopped && seen_moving)
-                return true;
+        calibration_broadcast(deviceID, step, msg, pos);
+
+        if (prev_pos == -2) {
+            // first reading — just record it
+            prev_pos = pos;
+            continue;
         }
+
+        if (pos != prev_pos) {
+            seen_movement = true;
+            stable_count = 0;
+        } else {
+            stable_count++;
+        }
+        prev_pos = pos;
+
+        // Stopped = seen real movement AND position unchanged for 2 consecutive polls (1 s)
+        if (seen_movement && stable_count >= 2)
+            return true;
     }
     return false; // timeout
 }

@@ -406,6 +406,7 @@ transitCalBtn.onclick = function () {
 };
 
 transitCancelBtn.onclick = function () {
+    showTransitNormal();
     window.MiOpenApi.postJson("/api/action", { deviceId: device.id, action: "cancelCalibration" })
         .catch(function () {});
 };
