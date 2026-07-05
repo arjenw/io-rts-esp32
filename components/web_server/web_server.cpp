@@ -3141,8 +3141,11 @@ static void calibration_broadcast(const char *id, int step, const char *msg, int
     web_server_broadcast_message(buf);
 }
 
-static bool wait_for_stopped(const char *deviceID, int step, const char *msg, float target_approx, int timeout_s)
+// require_movement: if true, only return when is_stopped transitions false→true.
+// This prevents false positives when the device is already stopped before it starts moving.
+static bool wait_for_stopped(const char *deviceID, int step, const char *msg, float target_approx, int timeout_s, bool require_movement = false)
 {
+    bool seen_moving = !require_movement;
     for (int elapsed = 0; elapsed < timeout_s * 2; elapsed++) // poll every 500ms
     {
         if (s_cal_cancel) return false;
@@ -3162,10 +3165,12 @@ static bool wait_for_stopped(const char *deviceID, int step, const char *msg, fl
                       ? (int)it->second.position : -1;
             s_manager->mIoDevicesMutex.unlock();
 
+            if (!stopped) seen_moving = true;
+
             if (pos >= 0)
                 calibration_broadcast(deviceID, step, msg, pos);
 
-            if (stopped)
+            if (stopped && seen_moving)
                 return true;
         }
     }
@@ -3198,7 +3203,7 @@ static void calibration_task(void *arg)
     t0 = esp_timer_get_time();
     if (s_manager && s_manager->mIoHome)
         s_manager->mIoHome->CloseDevice(id);
-    if (!wait_for_stopped(id, 2, "Measuring close travel\xe2\x80\xa6", 100, 120)) {
+    if (!wait_for_stopped(id, 2, "Measuring close travel\xe2\x80\xa6", 100, 120, true)) {
         // Save partial if we got at least some travel
         char buf[150];
         snprintf(buf, sizeof(buf), "{\"type\":\"calibration_failed\",\"id\":\"%s\",\"reason\":\"%s\"}", id,
@@ -3223,7 +3228,7 @@ static void calibration_task(void *arg)
     t2 = esp_timer_get_time();
     if (s_manager && s_manager->mIoHome)
         s_manager->mIoHome->OpenDevice(id);
-    if (!wait_for_stopped(id, 3, "Measuring open travel\xe2\x80\xa6", 0, 120)) {
+    if (!wait_for_stopped(id, 3, "Measuring open travel\xe2\x80\xa6", 0, 120, true)) {
         char buf[150];
         snprintf(buf, sizeof(buf), "{\"type\":\"calibration_failed\",\"id\":\"%s\",\"reason\":\"%s\"}", id,
             s_cal_cancel ? "cancelled" : "timeout");

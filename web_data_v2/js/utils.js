@@ -51,7 +51,15 @@ function t(key, params = {}) {
 }
 
 function applyI18n() {
-    document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll("[data-i18n]").forEach(el => {
+        const text = t(el.dataset.i18n);
+        let textNode = null;
+        for (let i = 0; i < el.childNodes.length; i++) {
+            if (el.childNodes[i].nodeType === 3) { textNode = el.childNodes[i]; break; }
+        }
+        if (textNode) textNode.nodeValue = text;
+        else el.insertBefore(document.createTextNode(text), el.firstChild);
+    });
     document.querySelectorAll("[data-i18n-placeholder]").forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
     document.title = t("page.title");
 }
