@@ -328,9 +328,14 @@ static esp_err_t read_body(httpd_req_t *req, char **out)
     if (len == 0 || len > BODY_MAX_LEN) return ESP_FAIL;
     char *buf = (char *)malloc(len + 1);
     if (!buf) return ESP_ERR_NO_MEM;
-    int n = httpd_req_recv(req, buf, len);
-    if (n <= 0) { free(buf); return ESP_FAIL; }
-    buf[n] = '\0';
+    size_t received = 0;
+    while (received < len) {
+        int n = httpd_req_recv(req, buf + received, len - received);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (n <= 0) { free(buf); return ESP_FAIL; }
+        received += n;
+    }
+    buf[len] = '\0';
     *out = buf;
     return ESP_OK;
 }
@@ -650,20 +655,11 @@ static esp_err_t api_debug_get(httpd_req_t *req)
     cJSON *results = cJSON_AddArrayToObject(obj, "send_results");
     for (int i = 0; i < WS_MAX_CLIENTS; i++) {
         if (s_ws_fds[i] == -1) continue;
-        const char *test_msg = "{\"type\":\"debug_ping\"}";
-        httpd_ws_frame_t frame = {};
-        frame.type    = HTTPD_WS_TYPE_TEXT;
-        frame.payload = (uint8_t *)test_msg;
-        frame.len     = strlen(test_msg);
-        esp_err_t err = httpd_ws_send_frame_async(s_server, s_ws_fds[i], &frame);
+        int fd = s_ws_fds[i];
+        ws_send_str(fd, "{\"type\":\"debug_ping\"}");
         cJSON *r = cJSON_CreateObject();
-        cJSON_AddNumberToObject(r, "fd", s_ws_fds[i]);
-        cJSON_AddStringToObject(r, "err", esp_err_to_name(err));
+        cJSON_AddNumberToObject(r, "fd", fd);
         cJSON_AddItemToArray(results, r);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "debug send fd=%d err=%s", s_ws_fds[i], esp_err_to_name(err));
-            s_ws_fds[i] = -1;
-        }
     }
     send_json(req, obj);
     return ESP_OK;
