@@ -472,7 +472,6 @@
   "label.quiet_mode": "Leiser Modus",
   "popup.quiet_desc": "Langsamerer, leiserer Motorlauf.",
   "popup.transit_time": "Transition time",
-  "popup.transit_time_desc": "Time for the device to travel its full range.",
   "popup.transit_not_set": "Not set",
   "popup.transit_time_s": "{s} s",
   "popup.transit_save": "Save",

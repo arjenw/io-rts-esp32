@@ -472,7 +472,6 @@
   "label.quiet_mode": "Mode silencieux",
   "popup.quiet_desc": "Fonctionnement moteur plus lent et silencieux.",
   "popup.transit_time": "Transition time",
-  "popup.transit_time_desc": "Time for the device to travel its full range.",
   "popup.transit_not_set": "Not set",
   "popup.transit_time_s": "{s} s",
   "popup.transit_save": "Save",

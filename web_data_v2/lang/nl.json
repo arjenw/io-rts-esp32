@@ -473,7 +473,6 @@
   "label.quiet_mode": "Stille modus",
   "popup.quiet_desc": "Langzamere, stillere motorwerking.",
   "popup.transit_time": "Transition time",
-  "popup.transit_time_desc": "Time for the device to travel its full range.",
   "popup.transit_not_set": "Not set",
   "popup.transit_time_s": "{s} s",
   "popup.transit_save": "Save",

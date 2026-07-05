@@ -399,6 +399,9 @@ transitSaveBtn.onclick = function () {
 transitCalBtn.onclick = function () {
     showTransitCalibrating("…");
     window.MiOpenApi.postJson("/api/action", { deviceId: device.id, action: "calibrate" })
+        .then(function (r) {
+            if (!r.success) { showTransitNormal(); showToast(r.message || "Calibration failed.", "error"); }
+        })
         .catch(function (e) { showTransitNormal(); showToast(e.message, "error"); });
 };
 
