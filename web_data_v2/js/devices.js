@@ -197,6 +197,9 @@ li.appendChild(span);
 function closeDeviceEditModal() {
 var m = document.getElementById("device-edit-modal");
 if (m) m.classList.remove("open");
+window.MiOpenDevices.onCalibrationProgress = null;
+window.MiOpenDevices.onCalibrationDone = null;
+window.MiOpenDevices.onCalibrationFailed = null;
 }
 function devRow(labelText, subText, rightEl) {
 var row = document.createElement("div");
@@ -332,6 +335,104 @@ app.i18nText("label.quiet_mode", "Quiet mode"),
 app.i18nText("popup.quiet_desc", "Slower, quieter motor operation."),
 quietToggle
 ));
+}
+if (hasPos) {
+var transitSec = device.transit_time_ms > 0 ? Math.round(device.transit_time_ms / 1000) : 0;
+var transitSubText = transitSec > 0
+    ? app.i18nText("popup.transit_time_s", "{s} s").replace("{s}", transitSec)
+    : app.i18nText("popup.transit_not_set", "Not set");
+
+var transitInput = document.createElement("input");
+transitInput.type = "number";
+transitInput.min = "1";
+transitInput.max = "300";
+transitInput.className = "s-input";
+transitInput.style.width = "64px";
+if (transitSec > 0) transitInput.value = transitSec;
+transitInput.placeholder = "s";
+
+var transitSaveBtn   = devBtn(app.i18nText("popup.transit_save", "Save"), "primary");
+var transitCalBtn    = devBtn(app.i18nText("popup.transit_calibrate", "Calibrate"), "");
+var transitCancelBtn = devBtn(app.i18nText("popup.transit_cancel", "Cancel"), "");
+transitCancelBtn.style.display = "none";
+
+var transitProgressSpan = document.createElement("span");
+transitProgressSpan.style.cssText = "font-size:13px;color:var(--text2);margin-right:8px;";
+transitProgressSpan.style.display = "none";
+
+var transitRow = devRow(
+    app.i18nText("popup.transit_time", "Transition time"),
+    transitSubText,
+    [transitProgressSpan, transitInput, transitSaveBtn, transitCalBtn, transitCancelBtn]
+);
+var transitRowSub = transitRow.querySelector(".dev-row-sub");
+
+function showTransitCalibrating(msg) {
+    transitProgressSpan.textContent = msg;
+    transitProgressSpan.style.display = "";
+    transitCancelBtn.style.display = "";
+    transitInput.style.display = "none";
+    transitSaveBtn.style.display = "none";
+    transitCalBtn.style.display = "none";
+}
+function showTransitNormal() {
+    transitProgressSpan.style.display = "none";
+    transitCancelBtn.style.display = "none";
+    transitInput.style.display = "";
+    transitSaveBtn.style.display = "";
+    transitCalBtn.style.display = "";
+}
+
+transitSaveBtn.onclick = function () {
+    var v = parseInt(transitInput.value, 10);
+    if (isNaN(v) || v < 1 || v > 300) { showToast("Enter 1–300 seconds.", "error"); return; }
+    window.MiOpenApi.postJson("/api/action", { deviceId: device.id, action: "setTransitTime", value: v })
+        .then(function (r) {
+            if (!r.success) { showToast(r.message || "Save failed.", "error"); return; }
+            device.transit_time_ms = v * 1000;
+            if (transitRowSub) transitRowSub.textContent = app.i18nText("popup.transit_time_s", "{s} s").replace("{s}", v);
+            showToast(app.i18nText("popup.transit_saved", "Transition time saved."), "success");
+        })
+        .catch(function (e) { showToast(e.message, "error"); });
+};
+
+transitCalBtn.onclick = function () {
+    showTransitCalibrating("…");
+    window.MiOpenApi.postJson("/api/action", { deviceId: device.id, action: "calibrate" })
+        .catch(function (e) { showTransitNormal(); showToast(e.message, "error"); });
+};
+
+transitCancelBtn.onclick = function () {
+    window.MiOpenApi.postJson("/api/action", { deviceId: device.id, action: "cancelCalibration" })
+        .catch(function () {});
+};
+
+window.MiOpenDevices.onCalibrationProgress = function (data) {
+    if (data.id !== device.id) return;
+    showTransitCalibrating(data.message || "…");
+};
+window.MiOpenDevices.onCalibrationDone = function (data) {
+    if (data.id !== device.id) return;
+    var s = Math.round(data.transit_time_ms / 1000);
+    device.transit_time_ms = data.transit_time_ms;
+    transitInput.value = s;
+    if (transitRowSub) transitRowSub.textContent = app.i18nText("popup.transit_time_s", "{s} s").replace("{s}", s);
+    showTransitNormal();
+    showToast(app.i18nText("popup.transit_done", "Calibration done: {s} s").replace("{s}", s), "success");
+};
+window.MiOpenDevices.onCalibrationFailed = function (data) {
+    if (data.id !== device.id) return;
+    showTransitNormal();
+    var cancelled = data.reason === "cancelled";
+    showToast(
+        cancelled
+            ? app.i18nText("popup.transit_cancelled", "Calibration cancelled.")
+            : app.i18nText("popup.transit_failed", "Calibration failed."),
+        cancelled ? "info" : "error"
+    );
+};
+
+body.appendChild(transitRow);
 }
 if (hasFav) {
 var favPos = getFavPos(device.id);
