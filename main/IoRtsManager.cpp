@@ -126,6 +126,8 @@ namespace IoRts
                     it->second.info.is_openclose_inverted = device.info.is_openclose_inverted;
                 }
                 it->second.is_stopped = device.is_stopped;
+                if (device.is_stopped && std::abs(device.position - device.target) <= 2.0f)
+                    it->second.move_start_us = 0;
                 it->second.last_status_timestamp = device.last_status_timestamp;
                 it->second.next_status_update_timestamp = device.next_status_update_timestamp;
                 it->second.position = device.position;
