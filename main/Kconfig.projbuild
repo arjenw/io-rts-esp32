@@ -253,7 +253,7 @@ menu "IO RTS Project Configuration"
 
         config IOHOMECONTROL_PASSIVE_MODE
             bool "Passive only (not allowed to emit)"
-            default y
+            default n
 
         config IOHOMECONTROL_IGNORE_AUTO_UPDATE
             bool "Ignore auto-update flag and use timer value"
