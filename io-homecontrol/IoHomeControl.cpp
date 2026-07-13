@@ -192,29 +192,29 @@ namespace iohome
   /// @param expected_cmd  command ID to match, or -1 to accept any command
   /// @param timeout       FreeRTOS ticks to wait in total across all receive attempts
   /// @param result        output frame when a match is found
-  /// @param stash         caller-allocated array of RX_STASH_MAX RxFrameQueueItem
-  /// @param stash_count   in/out: number of frames currently in stash
   /// @return true if a matching frame was received before timeout
   static bool ReceiveMatchingFrame(
       const uint8_t    *expected_src,
       const uint8_t    *expected_dst,
       int               expected_cmd,
       TickType_t        timeout,
-      RxFrameQueueItem &result,
-      RxFrameQueueItem *stash,
-      int              &stash_count)
+      RxFrameQueueItem &result)
   {
+      RxFrameQueueItem stash[RX_STASH_MAX];
+      int stash_count = 0;
+
       const int64_t deadline_us = esp_timer_get_time()
                                   + (int64_t)timeout * portTICK_PERIOD_MS * 1000LL;
+      bool matched = false;
       while (true)
       {
           int64_t rem_us = deadline_us - esp_timer_get_time();
-          if (rem_us <= 0) return false;
+          if (rem_us <= 0) break;
           TickType_t ticks = (TickType_t)(rem_us / (portTICK_PERIOD_MS * 1000LL));
           if (ticks == 0) ticks = 1;
 
           RxFrameQueueItem item;
-          if (!xQueueReceive(sRxIoQueue, &item, ticks)) return false;
+          if (!xQueueReceive(sRxIoQueue, &item, ticks)) break;
 
           // Not addressed to us — discard silently
           if (memcmp(item.frame.dest_node, expected_dst, NODE_ID_SIZE) != 0) continue;
@@ -225,7 +225,8 @@ namespace iohome
           if (src_match && cmd_match)
           {
               result = item;
-              return true;
+              matched = true;
+              break;
           }
 
           // Addressed to us but not for this exchange — stash it
@@ -238,20 +239,16 @@ namespace iohome
               // Stash full: drop the oldest, shift down, add new at back
               memmove(&stash[0], &stash[1], sizeof(RxFrameQueueItem) * (RX_STASH_MAX - 1));
               stash[RX_STASH_MAX - 1] = item;
-              IO_LOGI("ReceiveMatchingFrame: stash full, oldest frame dropped");
+              IO_LOGW("ReceiveMatchingFrame: stash full, frame dropped from {} to {} cmd 0x{:02X}",
+                      buffToHexString(NODE_ID_SIZE, item.frame.src_node),
+                      buffToHexString(NODE_ID_SIZE, item.frame.dest_node),
+                      item.frame.command_id);
           }
       }
-  }
-
-  /// @brief Re-queue stashed frames to the front of sRxIoQueue in arrival order.
-  /// Must be called before xSemaphoreGive so ProcessReceivedFrameTask picks them up next.
-  /// @param stash       array filled by ReceiveMatchingFrame
-  /// @param count       number of valid entries in stash
-  static void FlushStash(RxFrameQueueItem *stash, int count)
-  {
-      // Send in reverse order to xQueueSendToFront so arrival order is preserved
-      for (int i = count - 1; i >= 0; i--)
+      // Requeue stashed frames to the front of sRxIoQueue in arrival order
+      for (int i = stash_count - 1; i >= 0; i--)
           xQueueSendToFront(sRxIoQueue, &stash[i], 0);
+      return matched;
   }
 
   /// @brief Low priority task that takes logs from queue and send them to registered callback
@@ -2066,8 +2063,6 @@ namespace iohome
   {
     uint8_t tries = 3;
     bool setStartFlagToAuthentResponse = false;
-    RxFrameQueueItem stash[RX_STASH_MAX];
-    int stash_count = 0;
 
     while (tries > 0)
     {
@@ -2079,13 +2074,11 @@ namespace iohome
       {
         RxFrameQueueItem rxItem;
         if (ReceiveMatchingFrame(request.dest_node, request.src_node, -1,
-                                 RECEIVED_IO_TREATMENT_WAIT_TICKS,
-                                 rxItem, stash, stash_count))
+                                 RECEIVED_IO_TREATMENT_WAIT_TICKS, rxItem))
         {
           if (rxItem.frame.command_id != CMD_CHALLENGE_REQUEST)
           {
             memcpy(&response, &rxItem.frame, sizeof(response));
-            FlushStash(stash, stash_count);
             return true; // no need for authentication!
           }
 
@@ -2099,11 +2092,9 @@ namespace iohome
             {
               // Now wait for final response
               if (ReceiveMatchingFrame(request.dest_node, request.src_node, -1,
-                                       RECEIVED_IO_TREATMENT_WAIT_TICKS,
-                                       rxItem, stash, stash_count))
+                                       RECEIVED_IO_TREATMENT_WAIT_TICKS, rxItem))
               {
                 memcpy(&response, &rxItem.frame, sizeof(response));
-                FlushStash(stash, stash_count);
                 return true;
               }
               setStartFlagToAuthentResponse = true;
@@ -2134,7 +2125,6 @@ namespace iohome
         continue;
       }
     }
-    FlushStash(stash, stash_count);
     return false;
   }
 
@@ -2150,17 +2140,12 @@ namespace iohome
     }
     // Listen for challenge response
     RxFrameQueueItem rxItem;
-    RxFrameQueueItem stash[RX_STASH_MAX];
-    int stash_count = 0;
     if (!ReceiveMatchingFrame(request.src_node, mOwnNodeId, CMD_CHALLENGE_RESPONSE,
-                              RECEIVED_IO_TREATMENT_WAIT_TICKS,
-                              rxItem, stash, stash_count))
+                              RECEIVED_IO_TREATMENT_WAIT_TICKS, rxItem))
     {
-      FlushStash(stash, stash_count);
       IO_LOGW("AuthenticateReceivedRequest: no challenge response received");
       return false;
     }
-    FlushStash(stash, stash_count);
     // Check challenge response...
     uint8_t data[FRAME_MAX_SIZE];
     data[0] = request.command_id;
