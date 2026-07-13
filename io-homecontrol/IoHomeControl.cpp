@@ -1565,6 +1565,11 @@ namespace iohome
       {
         UpdateDeviceStatus(response);
         ret = true;
+        if (position <= 100 && sMovementStartedCallback)
+        {
+          float dist = std::abs((float)position - it->second.move_start_pos) / 100.0f;
+          sMovementStartedCallback(deviceID, it->second.transit_time_ms, dist);
+        }
       }
       else
       {
