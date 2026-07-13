@@ -185,11 +185,25 @@ namespace IoRts
             if (fraction > 1.0f) fraction = 1.0f;
             float estimated = dev.move_start_pos + (dev.move_target_pos - dev.move_start_pos) * fraction;
             int estimated_int = (int)estimated;
+            // Derive state from movement direction, or final state if completed
+            const char *state = nullptr;
+            if (fraction >= 1.0f)
+            {
+                // Movement complete — publish final open/closed state
+                if (dev.info.is_openclose_inverted)
+                    state = (dev.move_target_pos < 0.1f) ? "closed" : "open";
+                else
+                    state = (dev.move_target_pos > 99.9f) ? "closed" : "open";
+            }
+            else if (dev.move_target_pos > dev.move_start_pos)
+                state = dev.info.is_openclose_inverted ? "opening" : "closing";
+            else if (dev.move_target_pos < dev.move_start_pos)
+                state = dev.info.is_openclose_inverted ? "closing" : "opening";
 #if CONFIG_WEB_ENABLED
             web_server_broadcast_position(id.c_str(), estimated_int, false, true);
 #endif
             if (sMqttHelper != nullptr)
-                sMqttHelper->PublishEstimatedPosition(id, estimated_int);
+                sMqttHelper->PublishEstimatedPosition(id, estimated_int, state);
 
             // Stop broadcasting once clamped (device should report back soon)
             if (fraction >= 1.0f)

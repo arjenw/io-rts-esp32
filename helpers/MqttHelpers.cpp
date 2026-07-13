@@ -1582,12 +1582,17 @@ namespace Helpers
         std::string topic = mTopicPrefix + "/" + MQTT_CLIENT_PREFIX_IO + deviceID + MQTT_CLIENT_SUFFIX_REMOTES + MQTT_CLIENT_STATE_TOPIC;
         esp_mqtt_client_publish(mMqttClientHandle, topic.c_str(), list.c_str(), 0, 0, 1);
     }
-    void MqttHelpers::PublishEstimatedPosition(const std::string &deviceId, int position)
+    void MqttHelpers::PublishEstimatedPosition(const std::string &deviceId, int position, const char *state)
     {
         if (!mStarted || mMqttClientHandle == nullptr) return;
         std::string positionTopic = GetTopicPrefix() + "/" + MQTT_CLIENT_PREFIX_IO + deviceId + MQTT_CLIENT_POSITION_TOPIC;
         std::string data = std::to_string(position);
         esp_mqtt_client_publish(mMqttClientHandle, positionTopic.c_str(), data.c_str(), 0, 0, 0); // retain=0
+        if (state != nullptr)
+        {
+            std::string stateTopic = GetTopicPrefix() + "/" + MQTT_CLIENT_PREFIX_IO + deviceId + MQTT_CLIENT_STATE_TOPIC;
+            esp_mqtt_client_publish(mMqttClientHandle, stateTopic.c_str(), state, 0, 0, 0); // retain=0
+        }
     }
 
     void MqttHelpers::SendLog(const std::string &log)
