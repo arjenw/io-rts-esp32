@@ -50,6 +50,10 @@ namespace IoRts
             ESP_LOGE(tag, "%s", log.c_str());
             level = 'E';
             break;
+        case ESP_LOG_WARN:
+            ESP_LOGW(tag, "%s", log.c_str());
+            level = 'W';
+            break;            
         case ESP_LOG_INFO:
             ESP_LOGI(tag, "%s", log.c_str());
             level = 'I';
