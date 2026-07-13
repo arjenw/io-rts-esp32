@@ -984,8 +984,7 @@ namespace iohome
       {
         // Confirm discovery with device (CMD 2C → 2D) before key exchange
         if (create_discovery_confirmation_request(request, mOwnNodeId, device.info.node_id) // request created
-            && SendAndReceive(request, response, FREQUENCY_CHANNEL_2)                       // send OK, received something
-            && (response.command_id == CMD_DISCOVER_CONFIRMATION_ACK))                      // expected answer (CMD 2D)
+            && SendAndReceive(request, response, FREQUENCY_CHANNEL_2, CMD_DISCOVER_CONFIRMATION_ACK)) // send OK, receive expected answer (CMD 2D)
         {
           // We have confirmed discovery, let's start pairing process
           if (create_init_transfer(request, mOwnNodeId, device.info.node_id)        // request created
@@ -1007,8 +1006,7 @@ namespace iohome
               // We have received a challenge, let's send our key!
               IoFrame keyTransfer;
               if (create_key_transfer(keyTransfer, request, device.info.node_id, mOwnNodeId, mSystemKey, rxItem.frame.data) // request created
-                  && SendAndReceive(keyTransfer, response, FREQUENCY_CHANNEL_2)                                             // send OK, received something
-                  && (response.command_id == CMD_KEY_TRANSFER_CONFIRMATION))                                                // expected answer
+                  && SendAndReceive(keyTransfer, response, FREQUENCY_CHANNEL_2, CMD_KEY_TRANSFER_CONFIRMATION))             // send OK, received expected answer
               {
                 // Create this device
                 std::string deviceID = buffToHexString(NODE_ID_SIZE, device.info.node_id);
@@ -1033,8 +1031,7 @@ namespace iohome
                       IO_LOGI("DiscoverAndPairDevice: subdevice {} added!", subDeviceID);
                       // and confirm discovery to this device
                       if (create_discovery_confirmation_request(request, mOwnNodeId, subDevice.info.node_id) // request created
-                          && SendAndReceive(request, response, FREQUENCY_CHANNEL_2)                          // send OK, received something
-                          && (response.command_id == CMD_DISCOVER_CONFIRMATION_ACK))                         // expected answer
+                          && SendAndReceive(request, response, FREQUENCY_CHANNEL_2, CMD_DISCOVER_CONFIRMATION_ACK)) // send OK, received expected answer
                       {
                         // IO_LOGI("DiscoverAndPairDevice: confirmed discovery to subdevice {}!", subDeviceID);
                       }
@@ -1073,8 +1070,7 @@ namespace iohome
                 sDeviceMap.insert({deviceID, device});
                 IoFrame statusReq, statusResp;
                 if (create_getstatus03_request(statusReq, mOwnNodeId, device.info.node_id)
-                    && SendAndReceive(statusReq, statusResp, FREQUENCY_CHANNEL_2)
-                    && statusResp.command_id == CMD_PRIVATE_RESPONSE)
+                    && SendAndReceive(statusReq, statusResp, FREQUENCY_CHANNEL_2, CMD_PRIVATE_RESPONSE))
                 {
                   IO_LOGI("DiscoverAndPairDevice: shortcut verified — device {} responds to CMD 03, shared key confirmed", deviceID);
                   result = PairResult::PAIRED_SHORTCUT_VERIFIED;
@@ -1723,25 +1719,17 @@ namespace iohome
       vTaskPrioritySet(NULL, IO_FRAME_PROCESSING_TASK); // change task priority to higher!
       // Convert UTF-8 name to Latin-1 for the device (IO-Homecontrol uses Latin-1)
       std::string latin1Name = Helpers::EncodingHelpers::Utf8ToLatin1(name);
-      if (create_setname_request(request, mOwnNodeId, it->second.info.node_id, latin1Name.c_str(), latin1Name.length() + 1) && SendAndReceive(request, response, FREQUENCY_CHANNEL_2))
+      if (create_setname_request(request, mOwnNodeId, it->second.info.node_id, latin1Name.c_str(), latin1Name.length() + 1) && SendAndReceive(request, response, FREQUENCY_CHANNEL_2, CMD_SET_NAME_ANSWER))
       {
-        if (response.command_id == CMD_SET_NAME_ANSWER)
+        // Update Device Status — store the UTF-8 version in memory
+        memset(it->second.info.name, 0, sizeof(it->second.info.name));
+        size_t copyLen = name.length() < CMD_PARAM_NAME_MAXSIZE - 1 ? name.length() : CMD_PARAM_NAME_MAXSIZE - 1;
+        memcpy(it->second.info.name, name.c_str(), copyLen);
+        if (!xQueueSendToBack(sIoDeviceStatusQueue, &it->second, 0))
         {
-          // Update Device Status — store the UTF-8 version in memory
-          memset(it->second.info.name, 0, sizeof(it->second.info.name));
-          size_t copyLen = name.length() < CMD_PARAM_NAME_MAXSIZE - 1 ? name.length() : CMD_PARAM_NAME_MAXSIZE - 1;
-          memcpy(it->second.info.name, name.c_str(), copyLen);
-          if (!xQueueSendToBack(sIoDeviceStatusQueue, &it->second, 0))
-          {
-            IO_LOGE("UpdateDeviceStatus can't add device to queue!");
-          }
-          ret = true;
+          IO_LOGE("UpdateDeviceStatus can't add device to queue!");
         }
-        else
-        {
-          IO_LOGE("SetDeviceName: received unexpected response!");
-          ret = false;
-        }
+        ret = true;
       }
       else
       {
@@ -2059,7 +2047,7 @@ namespace iohome
   // 2W Mode Features Implementation
   // ============================================================================
 
-  bool IoHomeControl::SendAndReceive(const IoFrame &request, IoFrame &response, uint32_t frequency)
+  bool IoHomeControl::SendAndReceive(const IoFrame &request, IoFrame &response, uint32_t frequency, int expected_response_cmd)
   {
     uint8_t tries = 3;
     bool setStartFlagToAuthentResponse = false;
@@ -2091,7 +2079,7 @@ namespace iohome
             if (TransmitFrame(challengeResponse, frequency, LONG_PREAMBLE_LENGTH))
             {
               // Now wait for final response
-              if (ReceiveMatchingFrame(request.dest_node, request.src_node, -1,
+              if (ReceiveMatchingFrame(request.dest_node, request.src_node, expected_response_cmd,
                                        RECEIVED_IO_TREATMENT_WAIT_TICKS, rxItem))
               {
                 memcpy(&response, &rxItem.frame, sizeof(response));
@@ -2490,14 +2478,14 @@ namespace iohome
       UBaseType_t currentPriority = uxTaskPriorityGet(NULL);
       vTaskPrioritySet(NULL, IO_FRAME_PROCESSING_TASK);
 
-      if (create_getbattery_request(request, mOwnNodeId, tmpDeviceId, 0x06) && SendAndReceive(request, response, FREQUENCY_CHANNEL_2) && response.command_id == CMD_PRIVATE_RESPONSE && response.data_len >= 4)
+      if (create_getbattery_request(request, mOwnNodeId, tmpDeviceId, 0x06) && SendAndReceive(request, response, FREQUENCY_CHANNEL_2, CMD_PRIVATE_RESPONSE) && response.data_len >= 4)
       {
         is_battery_powered = (response.data[1] == 0x60);
         battery_status = (uint16_t)(response.data[2] << 8) | response.data[3];
         status_ok = true;
       }
 
-      if (create_getbattery_request(request, mOwnNodeId, tmpDeviceId, 0x09) && SendAndReceive(request, response, FREQUENCY_CHANNEL_2) && response.command_id == CMD_PRIVATE_RESPONSE && response.data_len >= 4)
+      if (create_getbattery_request(request, mOwnNodeId, tmpDeviceId, 0x09) && SendAndReceive(request, response, FREQUENCY_CHANNEL_2, CMD_PRIVATE_RESPONSE) && response.data_len >= 4)
       {
         battery_state = (uint16_t)(response.data[2] << 8) | response.data[3];
         state_ok = true;
